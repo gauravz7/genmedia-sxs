@@ -1,0 +1,10 @@
+.gcloudignore
+.git/
+.gitignore
+*.md
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+backend/venv/
+backend/__pycache__/
+backend/*.log

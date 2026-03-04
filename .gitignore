@@ -1,0 +1,16 @@
+# OS files
+.DS_Store
+
+# Root sensitive keys
+service_keys.json
+credentials.json
+*.pem
+
+# Backups
+backups/
+project-pulse/backend_backup/
+project-pulse/frontend_backup/
+
+# Process files
+frontend.pid
+backend.pid
