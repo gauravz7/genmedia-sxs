@@ -825,6 +825,26 @@ async def cast_vote(req: VoteRequest):
     return {"status": "success", "vote_id": vote_id}
 
 
+@app.post("/api/admin/votes/prune")
+async def prune_votes(keep: int = Query(20, ge=1)):
+    """Keep only the most recent `keep` votes, delete the rest."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    docs = list(db.collection("votes").order_by("timestamp", direction=_fs.Query.DESCENDING).stream())
+    total = len(docs)
+    if total <= keep:
+        return {"status": "nothing_to_delete", "total": total, "keep": keep}
+    to_delete = docs[keep:]
+    batch = db.batch()
+    for i, doc in enumerate(to_delete):
+        batch.delete(db.collection("votes").document(doc.id))
+        if (i + 1) % 500 == 0:
+            batch.commit()
+            batch = db.batch()
+    batch.commit()
+    return {"status": "success", "total_before": total, "kept": keep, "deleted": len(to_delete)}
+
+
 # ===================================================================
 # Stats & Leaderboard
 # ===================================================================

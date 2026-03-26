@@ -4,6 +4,7 @@ Thumbs.db
 
 # ──── Secrets & Credentials ────
 service_keys.json
+claude_sa.json
 credentials.json
 signing_keys.json
 *.pem
