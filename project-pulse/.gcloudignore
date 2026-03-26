@@ -8,3 +8,11 @@ frontend/out/
 backend/venv/
 backend/__pycache__/
 backend/*.log
+backend/*.logs
+backend/*.pid
+backend/.env
+backend/signing_keys.json
+backend/private.key
+backend_backup/
+frontend_backup/
+backups/
