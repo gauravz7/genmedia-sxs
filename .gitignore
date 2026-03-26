@@ -1,16 +1,50 @@
 # OS files
 .DS_Store
+Thumbs.db
 
-# Root sensitive keys
+# ──── Secrets & Credentials ────
 service_keys.json
 credentials.json
+signing_keys.json
 *.pem
+*.key
+*.p12
+*.jks
+*.keystore
+.env
+.env.*
+!.env.example
 
-# Backups
+# ──── Backups ────
 backups/
 project-pulse/backend_backup/
 project-pulse/frontend_backup/
 
-# Process files
-frontend.pid
-backend.pid
+# ──── Process & Runtime ────
+*.pid
+*.log
+*.logs
+
+# ──── Python ────
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# ──── Node / Frontend ────
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+
+# ──── Build artifacts ────
+project-pulse/backend/static/
+
+# ──── IDE ────
+.vscode/
+.idea/
+*.swp
+*.swo

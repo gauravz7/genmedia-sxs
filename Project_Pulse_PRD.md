@@ -57,7 +57,7 @@ With the launch of highly capable multimodal generative models (Kling 3.0, Seeda
 To ensure apples-to-apples evaluation without platform bias:
 - **Veo integration**: Consumed directly via GCP Vertex AI APIs within `vital-octagon-19612`.
 - **Competitor Models (Kling 3.0, Seedance 2.0)**: Consumed via FAL API.
-  - *API Key*: `***REDACTED***`
+  - *API Key*: Set via `FAL_KEY` environment variable (see `.env`)
 
 ### 4.3. Data Pipeline & Gemini Evaluator
 - **Evaluation Database**: Store prompt metadata, model parameters, video object URIs, and user feedback vectors. Structured to export cleanly to Vertex GenAI Studio for finetuning.
