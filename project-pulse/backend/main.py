@@ -500,6 +500,20 @@ async def get_admin_jobs():
     return results_list
 
 
+@app.delete("/api/admin/jobs/{job_id}")
+async def delete_job(job_id: str):
+    """Delete a job from Firestore."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    doc_ref = db.collection("eval_jobs").document(job_id)
+    doc = doc_ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Job not found")
+    doc_ref.delete()
+    jobs_manager.invalidate_cache()
+    return {"status": "deleted", "job_id": job_id}
+
+
 @app.get("/api/admin/jobs/{job_id}/status")
 async def get_job_status(job_id: str):
     """Return per-model generation status for a single job.

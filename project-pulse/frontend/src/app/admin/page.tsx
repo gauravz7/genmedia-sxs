@@ -935,7 +935,7 @@ export default function AdminConsole() {
                   const genCount = modelIds.filter(m => results[m].status === "generating").length;
 
                   return (
-                    <div key={job.id} className="bg-[#0d1017] border border-white/5 rounded-3xl overflow-hidden shadow-xl hover:border-white/10 transition-all">
+                    <div key={job.id} className="relative group bg-[#0d1017] border border-white/5 rounded-3xl overflow-hidden shadow-xl hover:border-white/10 transition-all">
                       {/* Collapsed Header */}
                       <button onClick={() => setExpandedJobId(isExpanded ? null : job.id)} className="w-full p-6 flex items-center gap-6 text-left hover:bg-white/[0.01] transition-all">
                         {/* Status Indicator */}
@@ -968,6 +968,25 @@ export default function AdminConsole() {
                         </div>
 
                         {isExpanded ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
+                      </button>
+
+                      {/* Delete Job Button */}
+                      <button
+                        className="absolute top-3 right-3 p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-all opacity-0 group-hover:opacity-100"
+                        title="Delete job"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!confirm(`Delete job "${job.text?.slice(0, 60)}..."?\nThis cannot be undone.`)) return;
+                          try {
+                            const res = await fetch(`${API_BASE_URL}/api/admin/jobs/${job.id}`, { method: 'DELETE' });
+                            if (!res.ok) throw new Error('Failed to delete');
+                            setGenJobs((prev: any[]) => prev.filter((j: any) => j.id !== job.id));
+                          } catch (err) {
+                            alert('Failed to delete job');
+                          }
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
 
                       {/* Expanded: Video Grid */}
