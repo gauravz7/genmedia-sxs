@@ -400,7 +400,8 @@ export default function AdminConsole() {
         };
       }
       groups[row.promptId].rows.push(row);
-      if (row.model) groups[row.promptId].models.push(row.model.trim());
+      // Only include models whose rows are not already marked success
+      if (row.model && row.batchStatus !== "done") groups[row.promptId].models.push(row.model.trim());
       if (row.batchStatus !== "done") groups[row.promptId].allSuccess = false;
       if (row.batchStatus === "error") groups[row.promptId].hasError = true;
     }
@@ -480,6 +481,9 @@ export default function AdminConsole() {
               } catch { /* retry */ }
             }
 
+            // Only update rows that were not already marked success
+            const pendingRows = g.rows.filter((r: any) => r.batchStatus !== "done");
+
             if (jobStatus?.all_done && jobStatus.succeeded > 0) {
               // At least one model succeeded — mark success
               const errorDetail = jobStatus.failed > 0
@@ -487,7 +491,7 @@ export default function AdminConsole() {
                 : "";
               setRowStatus(pid, "done");
               done++;
-              for (const row of g.rows) {
+              for (const row of pendingRows) {
                 fetch(`${API_BASE_URL}/api/admin/batch/sheet/update`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: sheetUrl, row: row.rowIndex, success: true, error: errorDetail }) }).catch(() => {});
               }
             } else {
@@ -498,7 +502,8 @@ export default function AdminConsole() {
           } catch (err: any) {
             setRowStatus(pid, "error", err?.message || "Failed");
             errors++;
-            for (const row of g.rows) {
+            const pendingRows = g.rows.filter((r: any) => r.batchStatus !== "done");
+            for (const row of pendingRows) {
               fetch(`${API_BASE_URL}/api/admin/batch/sheet/update`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: sheetUrl, row: row.rowIndex, success: false, error: err?.message || "Failed" }) }).catch(() => {});
             }
           }
