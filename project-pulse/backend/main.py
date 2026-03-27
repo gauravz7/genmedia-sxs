@@ -539,6 +539,44 @@ async def get_job_status(job_id: str):
     }
 
 
+@app.post("/api/admin/jobs/{job_id}/retry-stuck")
+async def retry_stuck_models(job_id: str, background_tasks: BackgroundTasks):
+    """Re-run models stuck in 'generating' status (lost during deploys)."""
+    job = jobs_manager.jobs.get(job_id)
+    if not job:
+        jobs_manager.invalidate_cache()
+        job = jobs_manager.jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    stuck = [k for k, v in job.results.items() if v.get("status") == "generating"]
+    if not stuck:
+        return {"status": "nothing_stuck", "job_id": job_id}
+
+    target_models = [registry.models[mid] for mid in stuck if mid in registry.models]
+    if not target_models:
+        return {"status": "error", "detail": "Stuck models not found in registry"}
+
+    request = PromptRequest(
+        text=job.prompt, ratio=job.ratio or "16:9",
+        start_image_url=job.start_image_url,
+        end_image_url=job.end_image_url,
+        reference_image_url=job.reference_image_url,
+        reference_images=job.reference_images,
+        model_ids=[m.id for m in target_models],
+    )
+
+    # Reset stuck models to "generating"
+    for mid in stuck:
+        job.results[mid] = {"status": "generating"}
+    jobs_manager.save_job(job)
+
+    background_tasks.add_task(
+        _run_generation_background, job_id, target_models, request, time.time()
+    )
+    return {"status": "retrying", "job_id": job_id, "models": stuck}
+
+
 # ===================================================================
 # Video Generation
 # ===================================================================
