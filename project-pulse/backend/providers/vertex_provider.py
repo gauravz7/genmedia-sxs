@@ -286,36 +286,60 @@ async def generate_tags_with_gemini(prompt: str, start_image_url: str = None, en
         ]
         cat_str = ", ".join(categories)
         
-        contents = [
-            f"Analyze this video generation scenario and suggest exactly 3 short, relevant tags from the following predefined categories ONLY. Return as a comma-separated list of exactly 3 tags chosen from: [{cat_str}].\n\nPrompt: {prompt}"
-        ]
-        
-        # Add images for analysis if provided
+        # Build image parts first
+        image_parts = []
         all_images = []
         if start_image_url: all_images.append(start_image_url)
         if end_image_url: all_images.append(end_image_url)
         if reference_images: all_images.extend(reference_images)
-        
-        for img_url in all_images[:3]: # Limit to 3 images for analysis
+
+        for img_url in all_images[:3]:
             if not img_url: continue
             ref_gcs = img_url
             if img_url.startswith("https://storage.googleapis.com/"):
                 parts = img_url.replace("https://storage.googleapis.com/", "").split("/")
                 ref_gcs = f"gs://{parts[0]}/{'/'.join(parts[1:])}"
-            contents.append(
+            image_parts.append(
                 types.Part(
                     file_data=types.FileData(file_uri=ref_gcs, mime_type="image/png")
                 )
             )
-            
+
+        has_images = len(image_parts) > 0
+        image_context = " Analyze both the images and the text prompt to determine tags." if has_images else ""
+
+        contents = [
+            f"You are a tagging system. Pick exactly 3 tags from this list:\n{cat_str}\n\n"
+            f"Rules:\n"
+            f"- Return ONLY 3 tags from the list above, nothing else.\n"
+            f"- Output format: tag1, tag2, tag3\n"
+            f"- Do NOT output any explanation, commentary, or the prompt text.\n"
+            f"- If images show real people/photos, include '📷 Photorealistic' and '👤 People'.{image_context}\n\n"
+            f"Prompt: {prompt}"
+        ]
+        contents.extend(image_parts)
+
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=contents
         )
-        
+
         text = response.text.strip()
-        tags = [t.strip() for t in text.split(",") if t.strip()][:3]
-        return tags
+        raw_tags = [t.strip() for t in text.split(",") if t.strip()]
+        # Validate: only keep tags that match the predefined categories
+        valid_tags = [t for t in raw_tags if t in categories]
+        # If validation filtered too many, try fuzzy match (emoji prefix)
+        if len(valid_tags) < 3:
+            for raw in raw_tags:
+                if raw in valid_tags:
+                    continue
+                for cat in categories:
+                    if cat not in valid_tags and (raw in cat or cat.split(" ", 1)[-1].lower() in raw.lower()):
+                        valid_tags.append(cat)
+                        break
+                if len(valid_tags) >= 3:
+                    break
+        return valid_tags[:3] if valid_tags else ["📷 Photorealistic", "👤 People", "🏠 Indoor"]
     except Exception as e:
         print(f"Error generating tags: {e}")
         return ["🎥 3D animation", "🌿 Nature", "📷 Photorealistic"] # Fallback
