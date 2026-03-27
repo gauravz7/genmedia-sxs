@@ -367,7 +367,7 @@ export default function LivingArena() {
                 ))}
               </div>
 
-              <h1 className="text-3xl md:text-5xl font-light text-white leading-[1.15] tracking-tight">
+              <h1 className="text-xl md:text-2xl font-light text-white leading-[1.3] tracking-tight">
                 &ldquo;{currentEval?.prompt || "Loading Scenario..."}&rdquo;
               </h1>
               <div className="flex items-center gap-4 text-sm text-gray-500 italic font-light">
