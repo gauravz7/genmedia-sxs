@@ -6,7 +6,7 @@ import {
   Target, Database, ArrowRight, CheckCircle2,
   AlertCircle, Loader2, Zap, Info, ShieldCheck, Image as ImageIcon, Link as LinkIcon,
   PlayCircle, StopCircle, UploadCloud, X, Tag, Filter, Eye, Clock, Video,
-  ChevronDown, ChevronUp, RefreshCw, Trash2
+  ChevronDown, ChevronUp, RefreshCw, Trash2, Download
 } from 'lucide-react';
 
 const PRESET_CATEGORIES = ["Studio Shots", "Beauty", "Animation", "Model Bug Backlog"];
@@ -990,6 +990,28 @@ export default function AdminConsole() {
                             </div>
                           )}
 
+                          {/* Download All */}
+                          {(() => {
+                            const successVideos = modelIds.filter((m: string) => results[m].status === 'success' && (results[m].url || results[m].result?.url));
+                            if (successVideos.length === 0) return null;
+                            return (
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{successVideos.length} video{successVideos.length > 1 ? 's' : ''} generated</span>
+                                <button
+                                  onClick={() => {
+                                    for (const m of successVideos) {
+                                      const url = formatUrl(results[m].url || results[m].result?.url);
+                                      if (url) window.open(url, '_blank');
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[11px] font-bold hover:bg-indigo-500/20 transition-all"
+                                >
+                                  <Download className="w-4 h-4" /> Open All Videos
+                                </button>
+                              </div>
+                            );
+                          })()}
+
                           {/* Video Grid */}
                           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             {modelIds.map((modelId: string) => {
@@ -1048,7 +1070,27 @@ export default function AdminConsole() {
                                         )}
                                       </div>
                                     </div>
-                                    <div className={`w-2 h-2 rounded-full ${status === 'success' && videoUrl ? 'bg-emerald-500' : status === 'error' ? 'bg-red-500' : status === 'generating' ? 'bg-indigo-500 animate-pulse' : 'bg-gray-700'}`} />
+                                    <div className="flex items-center gap-2">
+                                      {status === 'success' && videoUrl && (
+                                        <a
+                                          href={formatUrl(videoUrl)}
+                                          download={`${job.prompt_id || job.id}_${modelId}.mp4`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-all group/dl"
+                                          title="Download video"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            // For signed GCS URLs, open in new tab (download attr may not work cross-origin)
+                                            window.open(formatUrl(videoUrl), '_blank');
+                                            e.preventDefault();
+                                          }}
+                                        >
+                                          <Download className="w-3.5 h-3.5 text-gray-400 group-hover/dl:text-white" />
+                                        </a>
+                                      )}
+                                      <div className={`w-2 h-2 rounded-full ${status === 'success' && videoUrl ? 'bg-emerald-500' : status === 'error' ? 'bg-red-500' : status === 'generating' ? 'bg-indigo-500 animate-pulse' : 'bg-gray-700'}`} />
+                                    </div>
                                   </div>
                                 </div>
                               );
