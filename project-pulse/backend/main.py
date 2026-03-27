@@ -502,22 +502,27 @@ async def get_admin_jobs():
 
 @app.get("/api/admin/jobs/{job_id}/status")
 async def get_job_status(job_id: str):
-    """Return per-model generation status for a single job."""
-    job = jobs_manager.jobs.get(job_id)
-    if not job:
-        # Reload from Firestore in case it was created after server cache
-        jobs_manager.invalidate_cache()
-        job = jobs_manager.jobs.get(job_id)
-    if not job:
+    """Return per-model generation status for a single job.
+    Always reads fresh from Firestore to avoid stale cache during polling."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    doc = db.collection("eval_jobs").document(job_id).get()
+    if not doc.exists:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    results = job.results or {}
+    data = doc.to_dict()
+    results = data.get("results", {})
+
     all_done = all(
         r.get("status") not in (None, "generating", "queued")
         for r in results.values()
     ) if results else False
 
-    succeeded = sum(1 for r in results.values() if r.get("status") == "success")
+    # Only count as succeeded if status is "success" AND a video URL exists
+    succeeded = sum(
+        1 for r in results.values()
+        if r.get("status") == "success" and (r.get("url") or (isinstance(r.get("result"), dict) and r["result"].get("url")))
+    )
     failed = sum(1 for r in results.values() if r.get("status") == "error")
     errors = [
         {"model": k, "error": r.get("error", "")}
