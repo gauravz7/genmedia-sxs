@@ -514,6 +514,53 @@ async def delete_job(job_id: str):
     return {"status": "deleted", "job_id": job_id}
 
 
+@app.post("/api/admin/jobs/{job_id}/retry")
+async def retry_failed_models(job_id: str, background_tasks: BackgroundTasks):
+    """Retry only the failed/error models in a job."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    doc_ref = db.collection("eval_jobs").document(job_id)
+    doc = doc_ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    data = doc.to_dict()
+    results = data.get("results", {})
+
+    # Find models that errored
+    failed_model_ids = [mid for mid, r in results.items() if r.get("status") == "error"]
+    if not failed_model_ids:
+        return {"status": "no_failures", "job_id": job_id, "message": "No failed models to retry"}
+
+    # Look up registered models
+    retry_models = [registry.models[mid] for mid in failed_model_ids if mid in registry.models]
+    if not retry_models:
+        raise HTTPException(status_code=400, detail=f"Failed models not found in registry: {failed_model_ids}")
+
+    # Mark them as generating again
+    for mid in failed_model_ids:
+        results[mid] = {"status": "generating"}
+    doc_ref.update({"results": results})
+    jobs_manager.invalidate_cache()
+
+    # Reconstruct PromptRequest from job data
+    request = PromptRequest(
+        text=data.get("prompt", ""),
+        categories=data.get("categories", []),
+        ratio=data.get("ratio", "16:9"),
+        prompt_id=data.get("prompt_id"),
+        start_image_url=data.get("start_image_url"),
+        end_image_url=data.get("end_image_url"),
+        reference_image_url=data.get("reference_image_url"),
+        reference_images=data.get("reference_images"),
+        model_ids=failed_model_ids,
+    )
+
+    background_tasks.add_task(_run_generation_background, job_id, retry_models, request, time.time())
+
+    return {"status": "retrying", "job_id": job_id, "retrying_models": failed_model_ids}
+
+
 @app.get("/api/admin/jobs/{job_id}/status")
 async def get_job_status(job_id: str):
     """Return per-model generation status for a single job.

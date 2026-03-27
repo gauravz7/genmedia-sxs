@@ -1031,6 +1031,41 @@ export default function AdminConsole() {
                             );
                           })()}
 
+                          {/* Retry Failed Models */}
+                          {(() => {
+                            const failedModels = modelIds.filter((m: string) => results[m].status === 'error');
+                            if (failedModels.length === 0) return null;
+                            return (
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-red-400">{failedModels.length} model{failedModels.length > 1 ? 's' : ''} failed</span>
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm(`Retry ${failedModels.length} failed model(s)? This will incur generation costs.`)) return;
+                                    try {
+                                      const res = await fetch(`${API_BASE_URL}/api/admin/jobs/${job.id}/retry`, { method: 'POST' });
+                                      if (!res.ok) throw new Error('Failed to retry');
+                                      const data = await res.json();
+                                      // Update local state to show generating
+                                      setGenJobs((prev: any[]) => prev.map((j: any) => {
+                                        if (j.id !== job.id) return j;
+                                        const updated = { ...j, results: { ...j.results } };
+                                        for (const mid of data.retrying_models || failedModels) {
+                                          updated.results[mid] = { status: 'generating' };
+                                        }
+                                        return updated;
+                                      }));
+                                    } catch (err) {
+                                      alert('Failed to retry models');
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold hover:bg-red-500/20 transition-all"
+                                >
+                                  <RefreshCw className="w-4 h-4" /> Retry Failed
+                                </button>
+                              </div>
+                            );
+                          })()}
+
                           {/* Video Grid */}
                           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             {modelIds.map((modelId: string) => {
