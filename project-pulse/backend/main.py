@@ -500,6 +500,40 @@ async def get_admin_jobs():
     return results_list
 
 
+@app.get("/api/admin/jobs/{job_id}/status")
+async def get_job_status(job_id: str):
+    """Return per-model generation status for a single job."""
+    job = jobs_manager.jobs.get(job_id)
+    if not job:
+        # Reload from Firestore in case it was created after server cache
+        jobs_manager.invalidate_cache()
+        job = jobs_manager.jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    results = job.results or {}
+    all_done = all(
+        r.get("status") not in (None, "generating", "queued")
+        for r in results.values()
+    ) if results else False
+
+    succeeded = sum(1 for r in results.values() if r.get("status") == "success")
+    failed = sum(1 for r in results.values() if r.get("status") == "error")
+    errors = [
+        {"model": k, "error": r.get("error", "")}
+        for k, r in results.items() if r.get("status") == "error"
+    ]
+
+    return {
+        "job_id": job_id,
+        "all_done": all_done,
+        "total_models": len(results),
+        "succeeded": succeeded,
+        "failed": failed,
+        "errors": errors,
+    }
+
+
 # ===================================================================
 # Video Generation
 # ===================================================================

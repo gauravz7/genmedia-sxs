@@ -459,11 +459,41 @@ export default function AdminConsole() {
               })
             });
             if (!res.ok) throw new Error(`API ${res.status}`);
-            setRowStatus(pid, "done");
-            done++;
-            // Update sheet rows
-            for (const row of g.rows) {
-              fetch(`${API_BASE_URL}/api/admin/batch/sheet/update`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: sheetUrl, row: row.rowIndex, success: true, error: "" }) }).catch(() => {});
+            const genResult = await res.json();
+            const jobId = genResult.job_id;
+
+            // Poll job status until all models finish (max 15 min)
+            const pollInterval = 10_000;
+            const maxPolls = 90;
+            let pollCount = 0;
+            let jobStatus: any = null;
+
+            while (pollCount < maxPolls) {
+              await new Promise(r => setTimeout(r, pollInterval));
+              pollCount++;
+              try {
+                const statusRes = await fetch(`${API_BASE_URL}/api/admin/jobs/${jobId}/status`);
+                if (statusRes.ok) {
+                  jobStatus = await statusRes.json();
+                  if (jobStatus.all_done) break;
+                }
+              } catch { /* retry */ }
+            }
+
+            if (jobStatus?.all_done && jobStatus.succeeded > 0) {
+              // At least one model succeeded — mark success
+              const errorDetail = jobStatus.failed > 0
+                ? `${jobStatus.succeeded}/${jobStatus.total_models} succeeded. Failures: ${jobStatus.errors.map((e: any) => `${e.model}: ${e.error}`).join('; ').slice(0, 200)}`
+                : "";
+              setRowStatus(pid, "done");
+              done++;
+              for (const row of g.rows) {
+                fetch(`${API_BASE_URL}/api/admin/batch/sheet/update`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: sheetUrl, row: row.rowIndex, success: true, error: errorDetail }) }).catch(() => {});
+              }
+            } else {
+              // All models failed or timed out
+              const errorMsg = jobStatus?.errors?.map((e: any) => `${e.model}: ${e.error}`).join('; ').slice(0, 200) || "All models failed or timed out";
+              throw new Error(errorMsg);
             }
           } catch (err: any) {
             setRowStatus(pid, "error", err?.message || "Failed");
