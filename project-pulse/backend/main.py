@@ -871,10 +871,12 @@ async def get_random_eval_pair(
     prompt_id: Optional[str] = None,
     tag: Optional[str] = None,
     search: Optional[str] = None,
+    veo_anchored: bool = False,
 ):
     """
     Returns a random pair of successful variants for SxS evaluation.
     Supports filtering by prompt_id, tag (category), or free-text search on prompt.
+    When veo_anchored=true, one side is always a Veo model.
     """
     groups = defaultdict(dict)
 
@@ -893,7 +895,16 @@ async def get_random_eval_pair(
                 if url:
                     groups[group_key][mid] = (job, url)
 
-    valid_groups = {k: v for k, v in groups.items() if len(v) >= 2}
+    if veo_anchored:
+        # Only keep groups that have at least 1 Veo + 1 non-Veo model
+        valid_groups = {}
+        for k, v in groups.items():
+            veo = {m: d for m, d in v.items() if "veo" in m.lower()}
+            non_veo = {m: d for m, d in v.items() if "veo" not in m.lower()}
+            if veo and non_veo:
+                valid_groups[k] = v
+    else:
+        valid_groups = {k: v for k, v in groups.items() if len(v) >= 2}
 
     if prompt_id:
         filtered = {k: v for k, v in valid_groups.items() if str(k) == str(prompt_id)}
@@ -909,23 +920,37 @@ async def get_random_eval_pair(
     for g_key in group_keys[:20]:
         candidates = valid_groups[g_key]
         accessible = [(mid, job, url) for mid, (job, url) in candidates.items() if _is_url_accessible(url)]
-        if len(accessible) >= 2:
-            pair = random.sample(accessible, 2)
-            side_a_model, job_a, url_a = pair[0]
-            side_b_model, job_b, url_b = pair[1]
 
-            return {
-                "job_id": getattr(job_a, "prompt_id", None) or job_a.id,
-                "prompt": job_a.prompt,
-                "categories": job_a.categories,
-                "ratio": getattr(job_a, "ratio", "16:9"),
-                "start_image_url": get_signed_url(job_a.start_image_url) if job_a.start_image_url else None,
-                "end_image_url": get_signed_url(job_a.end_image_url) if job_a.end_image_url else None,
-                "reference_image_url": get_signed_url(job_a.reference_image_url) if job_a.reference_image_url else None,
-                "reference_images": [get_signed_url(u) for u in job_a.reference_images] if job_a.reference_images else None,
-                "variant_a": {"model_id": side_a_model, "url": url_a},
-                "variant_b": {"model_id": side_b_model, "url": url_b},
-            }
+        if veo_anchored:
+            veo_list = [x for x in accessible if "veo" in x[0].lower()]
+            non_veo_list = [x for x in accessible if "veo" not in x[0].lower()]
+            if not veo_list or not non_veo_list:
+                continue
+            veo_pick = random.choice(veo_list)
+            non_veo_pick = random.choice(non_veo_list)
+            # Randomly assign to side A or B so evaluator can't guess
+            pair = [veo_pick, non_veo_pick]
+            random.shuffle(pair)
+        else:
+            if len(accessible) < 2:
+                continue
+            pair = random.sample(accessible, 2)
+
+        side_a_model, job_a, url_a = pair[0]
+        side_b_model, job_b, url_b = pair[1]
+
+        return {
+            "job_id": getattr(job_a, "prompt_id", None) or job_a.id,
+            "prompt": job_a.prompt,
+            "categories": job_a.categories,
+            "ratio": getattr(job_a, "ratio", "16:9"),
+            "start_image_url": get_signed_url(job_a.start_image_url) if job_a.start_image_url else None,
+            "end_image_url": get_signed_url(job_a.end_image_url) if job_a.end_image_url else None,
+            "reference_image_url": get_signed_url(job_a.reference_image_url) if job_a.reference_image_url else None,
+            "reference_images": [get_signed_url(u) for u in job_a.reference_images] if job_a.reference_images else None,
+            "variant_a": {"model_id": side_a_model, "url": url_a},
+            "variant_b": {"model_id": side_b_model, "url": url_b},
+        }
 
     return {"status": "error", "message": "Could not find a fully accessible video pair after scanning history."}
 

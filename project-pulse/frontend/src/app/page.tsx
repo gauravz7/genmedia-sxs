@@ -59,6 +59,7 @@ export default function LivingArena() {
   const [activeTag, setActiveTag] = useState("");
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [showTagFilter, setShowTagFilter] = useState(false);
+  const [veoAnchored, setVeoAnchored] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -104,6 +105,7 @@ export default function LivingArena() {
       if (forcePromptId) params.set("prompt_id", forcePromptId);
       if (forceTag || activeTag) params.set("tag", forceTag || activeTag);
       if (forceSearch || searchText) params.set("search", forceSearch || searchText);
+      if (veoAnchored) params.set("veo_anchored", "true");
       const qs = params.toString() ? `?${params.toString()}` : '';
 
       const res = await fetch(`${API_BASE_URL}/api/evaluation/pair${qs}`);
@@ -284,6 +286,43 @@ export default function LivingArena() {
               <Search className="w-4 h-4 text-gray-500 absolute left-3 group-focus-within:text-indigo-400 transition-colors" />
               <input type="text" placeholder="Search prompts..." value={searchText} onChange={(e) => setSearchText(e.target.value)} className="pl-9 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-sm text-white font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:bg-white/10 transition-all w-48 placeholder-gray-500" />
             </form>
+
+            {/* Veo Anchored Toggle */}
+            <button
+              onClick={() => {
+                const next = !veoAnchored;
+                setVeoAnchored(next);
+                // Fetch new pair with updated flag
+                setIsLoading(true);
+                const params = new URLSearchParams();
+                if (activeTag) params.set("tag", activeTag);
+                if (searchText) params.set("search", searchText);
+                if (next) params.set("veo_anchored", "true");
+                const qs = params.toString() ? `?${params.toString()}` : '';
+                fetch(`${API_BASE_URL}/api/evaluation/pair${qs}`)
+                  .then(r => r.json())
+                  .then(data => {
+                    if (data.status === "error") { setCurrentEval(null); }
+                    else {
+                      if (data.variant_a?.url) data.variant_a.url = formatUrl(data.variant_a.url);
+                      if (data.variant_b?.url) data.variant_b.url = formatUrl(data.variant_b.url);
+                      if (data.start_image_url) data.start_image_url = formatUrl(data.start_image_url);
+                      if (data.end_image_url) data.end_image_url = formatUrl(data.end_image_url);
+                      if (data.reference_image_url) data.reference_image_url = formatUrl(data.reference_image_url);
+                      if (data.reference_images) data.reference_images = data.reference_images.map(formatUrl);
+                      setCurrentEval(data);
+                    }
+                    setIsLoading(false);
+                    setVotingStep(1); setWinner(null); setDimScores({}); setJustification("");
+                  })
+                  .catch(() => setIsLoading(false));
+              }}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all border ${veoAnchored ? 'bg-purple-500/20 border-purple-500/40 text-purple-300 shadow-[0_0_12px_rgba(168,85,247,0.2)]' : 'bg-white/5 border-white/10 text-gray-500 hover:text-white'}`}
+              title="When active, one video is always from Veo"
+            >
+              <Target className="w-3.5 h-3.5" />
+              Veo Mode
+            </button>
 
             {/* Tag Filter Toggle */}
             <button onClick={() => setShowTagFilter(!showTagFilter)} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all border ${activeTag ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300' : 'bg-white/5 border-white/10 text-gray-500 hover:text-white'}`}>
