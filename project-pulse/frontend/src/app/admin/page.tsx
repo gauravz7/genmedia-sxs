@@ -990,32 +990,7 @@ export default function AdminConsole() {
                             </div>
                           )}
 
-                          {/* Retry Stuck + Download All */}
-                          {(() => {
-                            const stuckModels = modelIds.filter((m: string) => results[m].status === 'generating');
-                            if (stuckModels.length > 0) return (
-                              <div className="flex items-center justify-between bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-3">
-                                <span className="text-[11px] text-amber-400 font-bold">{stuckModels.length} model{stuckModels.length > 1 ? 's' : ''} stuck in &quot;generating&quot;</span>
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      const res = await fetch(`${API_BASE_URL}/api/admin/jobs/${job.id}/retry-stuck`, { method: 'POST' });
-                                      if (res.ok) {
-                                        const data = await res.json();
-                                        alert(`Retrying ${data.models?.length || 0} stuck models: ${data.models?.join(', ')}`);
-                                      } else {
-                                        alert('Retry failed');
-                                      }
-                                    } catch { alert('Retry failed'); }
-                                  }}
-                                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[11px] font-bold hover:bg-amber-500/20 transition-all"
-                                >
-                                  <RefreshCw className="w-4 h-4" /> Retry Stuck
-                                </button>
-                              </div>
-                            );
-                            return null;
-                          })()}
+                          {/* Download All */}
                           {(() => {
                             const successVideos = modelIds.filter((m: string) => results[m].status === 'success' && (results[m].url || results[m].result?.url));
                             if (successVideos.length === 0) return null;
