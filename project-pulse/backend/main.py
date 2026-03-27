@@ -662,15 +662,41 @@ async def _run_generation_background(job_id: str, target_models: List[Registered
                     res["latency"] = round(time.time() - initiation_time, 2)
                 response_results[key] = res
 
-        job = jobs_manager.jobs.get(job_id)
-        if job:
-            # Merge new results into existing (don't overwrite results from other runs)
+        # Write results directly to Firestore to avoid stale cache issues.
+        # The cache may have expired during the long generation (3-10 min),
+        # causing jobs_manager.jobs.get() to return None and silently drop results.
+        from google.cloud import firestore as _fs
+        db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+        doc_ref = db.collection("eval_jobs").document(job_id)
+        doc = doc_ref.get()
+        if doc.exists:
+            current = doc.to_dict()
+            existing_results = current.get("results", {})
             for k, v in response_results.items():
-                job.results[k] = v
-            jobs_manager.save_job(job)
-            print(f"Background Job {job_id} completed.")
+                existing_results[k] = v
+            doc_ref.update({"results": existing_results})
+            jobs_manager.invalidate_cache()
+            print(f"Background Job {job_id} completed. Updated {len(response_results)} model(s).")
+        else:
+            print(f"ERROR: Job {job_id} not found in Firestore after generation.")
     except Exception as e:
         print(f"Error in background generation for job {job_id}: {e}")
+        # Try to mark failed models as error in Firestore
+        try:
+            from google.cloud import firestore as _fs
+            db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+            doc_ref = db.collection("eval_jobs").document(job_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                current = doc.to_dict()
+                existing_results = current.get("results", {})
+                for key in model_keys:
+                    if existing_results.get(key, {}).get("status") == "generating":
+                        existing_results[key] = {"status": "error", "error": str(e)}
+                doc_ref.update({"results": existing_results})
+                jobs_manager.invalidate_cache()
+        except Exception:
+            pass
 
 
 @app.post("/api/generate")
