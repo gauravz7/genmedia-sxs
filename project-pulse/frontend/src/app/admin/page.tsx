@@ -5,7 +5,8 @@ import {
   PlusCircle, Search, Sparkles, BookOpen, Crown, Layers, Award,
   Target, Database, ArrowRight, CheckCircle2,
   AlertCircle, Loader2, Zap, Info, ShieldCheck, Image as ImageIcon, Link as LinkIcon,
-  PlayCircle, StopCircle, UploadCloud, X, Tag, Filter
+  PlayCircle, StopCircle, UploadCloud, X, Tag, Filter, Eye, Clock, Video,
+  ChevronDown, ChevronUp, RefreshCw, Trash2
 } from 'lucide-react';
 
 const PRESET_CATEGORIES = ["Studio Shots", "Beauty", "Animation", "Model Bug Backlog"];
@@ -70,6 +71,12 @@ export default function AdminConsole() {
   const [isLoadingSheet, setIsLoadingSheet] = useState(false);
   const [batchSearch, setBatchSearch] = useState("");
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; errors: number }>({ done: 0, total: 0, errors: 0 });
+
+  // Generations review
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [genSearch, setGenSearch] = useState("");
+  const [genStatusFilter, setGenStatusFilter] = useState<string>("all");
+  const [genTagFilter, setGenTagFilter] = useState<string>("");
 
   // Auth
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -578,6 +585,7 @@ export default function AdminConsole() {
           <div className="flex items-center space-x-2 bg-white/[0.03] border border-white/10 rounded-full p-1 shadow-inner">
             {[
               { id: 'prompts', label: 'Prompt Engine' },
+              { id: 'generations', label: 'Generations', icon: <Eye className="w-4 h-4" /> },
               { id: 'models', label: 'Model Registry' },
               { id: 'batch', label: 'Batch Upload', icon: <UploadCloud className="w-4 h-4" /> },
               { id: 'guidelines', label: 'Guidelines', icon: <BookOpen className="w-4 h-4" /> },
@@ -851,6 +859,215 @@ export default function AdminConsole() {
                   filteredPrompts.map(prompt => <PromptItem key={prompt.id} prompt={prompt} onTagClick={setFilterTag} />)
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============ GENERATIONS REVIEW ============ */}
+        {activeTab === 'generations' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 space-y-8">
+            {/* Header */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[10px] font-bold uppercase tracking-widest mb-4">
+                  <Eye className="w-3.5 h-3.5" /> Generation Review
+                </div>
+                <h2 className="text-4xl md:text-5xl font-light text-white mb-2 tracking-tight leading-tight">
+                  All <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Generations</span>
+                </h2>
+                <p className="text-gray-500 text-sm">Review video outputs across all models for every prompt</p>
+              </div>
+              <div className="flex gap-4">
+                <StatBox label="Jobs" value={prompts.length} />
+                <StatBox label="Success" value={prompts.filter(p => p.status === 'complete').length} />
+                <StatBox label="Partial" value={prompts.filter(p => p.status === 'complete' && p.error).length} />
+                <StatBox label="Failed" value={prompts.filter(p => p.status === 'error').length} />
+              </div>
+            </div>
+
+            {/* Filters */}
+            <div className="flex flex-wrap items-center gap-3 p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
+              <div className="relative flex items-center">
+                <Search className="w-4 h-4 text-gray-500 absolute left-3" />
+                <input type="text" placeholder="Search prompts, models, IDs..." value={genSearch} onChange={(e) => setGenSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 w-64 placeholder-gray-500" />
+                {genSearch && <X className="w-4 h-4 text-gray-500 absolute right-3 cursor-pointer hover:text-white" onClick={() => setGenSearch("")} />}
+              </div>
+              <select value={genStatusFilter} onChange={(e) => setGenStatusFilter(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl text-sm text-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500/50">
+                <option value="all">All Statuses</option>
+                <option value="complete">Complete</option>
+                <option value="error">Failed</option>
+                <option value="generating">Generating</option>
+              </select>
+              <select value={genTagFilter} onChange={(e) => setGenTagFilter(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl text-sm text-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500/50">
+                <option value="">All Tags</option>
+                {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <button onClick={() => { setGenSearch(""); setGenStatusFilter("all"); setGenTagFilter(""); }} className="text-[10px] font-bold text-gray-400 hover:text-white px-3 py-2 rounded-xl hover:bg-white/5 transition-all uppercase tracking-widest">Clear</button>
+            </div>
+
+            {/* Job Cards */}
+            <div className="space-y-4">
+              {(() => {
+                const filtered = prompts.filter(p => {
+                  if (genStatusFilter !== "all" && p.status !== genStatusFilter) return false;
+                  if (genTagFilter && !(p.categories || []).includes(genTagFilter)) return false;
+                  if (genSearch) {
+                    const q = genSearch.toLowerCase();
+                    const matchText = p.text.toLowerCase().includes(q);
+                    const matchId = (p.prompt_id || p.id.toString()).toLowerCase().includes(q);
+                    const matchModel = (p.models || []).some(m => m.toLowerCase().includes(q));
+                    if (!matchText && !matchId && !matchModel) return false;
+                  }
+                  return true;
+                });
+                if (filtered.length === 0) return (
+                  <div className="text-center py-20 text-gray-500">
+                    <Video className="w-12 h-12 mx-auto mb-4 opacity-30" />
+                    <p className="text-sm">No generations match your filters.</p>
+                  </div>
+                );
+                return filtered.map((job: any) => {
+                  const isExpanded = expandedJobId === job.id;
+                  const results = job.results || {};
+                  const modelIds = Object.keys(results);
+                  const successCount = modelIds.filter(m => results[m].status === "success" && (results[m].url || results[m].result?.url)).length;
+                  const errorCount = modelIds.filter(m => results[m].status === "error").length;
+                  const genCount = modelIds.filter(m => results[m].status === "generating").length;
+
+                  return (
+                    <div key={job.id} className="bg-[#0d1017] border border-white/5 rounded-3xl overflow-hidden shadow-xl hover:border-white/10 transition-all">
+                      {/* Collapsed Header */}
+                      <button onClick={() => setExpandedJobId(isExpanded ? null : job.id)} className="w-full p-6 flex items-center gap-6 text-left hover:bg-white/[0.01] transition-all">
+                        {/* Status Indicator */}
+                        <div className={`w-3 h-3 rounded-full shrink-0 ${job.status === 'complete' ? 'bg-emerald-500' : job.status === 'generating' ? 'bg-indigo-500 animate-pulse' : 'bg-red-500'}`} />
+
+                        {/* Prompt Preview */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-3 mb-1">
+                            <span className="text-[10px] font-mono text-purple-400 font-bold">{job.prompt_id || job.id}</span>
+                            <span className="text-[10px] text-gray-600">{job.timestamp}</span>
+                            {job.ratio && <span className="text-[9px] font-bold text-purple-400 px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">{job.ratio}</span>}
+                          </div>
+                          <p className="text-gray-300 text-sm truncate">{job.text}</p>
+                        </div>
+
+                        {/* Tags */}
+                        <div className="hidden lg:flex flex-wrap gap-1 max-w-[200px]">
+                          {(job.categories || []).slice(0, 3).map((tag: string, i: number) => (
+                            <span key={i} className="px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">{tag}</span>
+                          ))}
+                          {(job.categories || []).length > 3 && <span className="text-[9px] text-gray-600">+{job.categories.length - 3}</span>}
+                        </div>
+
+                        {/* Model Result Summary */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          {successCount > 0 && <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400"><CheckCircle2 className="w-3.5 h-3.5" />{successCount}</span>}
+                          {errorCount > 0 && <span className="flex items-center gap-1 text-[10px] font-bold text-red-400"><AlertCircle className="w-3.5 h-3.5" />{errorCount}</span>}
+                          {genCount > 0 && <span className="flex items-center gap-1 text-[10px] font-bold text-indigo-400"><Loader2 className="w-3.5 h-3.5 animate-spin" />{genCount}</span>}
+                          <span className="text-[10px] text-gray-600">/ {modelIds.length}</span>
+                        </div>
+
+                        {isExpanded ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
+                      </button>
+
+                      {/* Expanded: Video Grid */}
+                      {isExpanded && (
+                        <div className="border-t border-white/5 p-6 space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                          {/* Full Prompt */}
+                          <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-5">
+                            <p className="text-gray-200 text-sm leading-relaxed">&ldquo;{job.text}&rdquo;</p>
+                          </div>
+
+                          {/* Input Images */}
+                          {(job.start_image_url || job.end_image_url || job.reference_images?.length > 0) && (
+                            <div className="flex items-center gap-4">
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Inputs:</span>
+                              {job.start_image_url && <ImageThumbnail url={job.start_image_url} label="Start" onClick={() => setExpandedImage(job.start_image_url)} />}
+                              {job.end_image_url && <ImageThumbnail url={job.end_image_url} label="End" onClick={() => setExpandedImage(job.end_image_url)} />}
+                              {job.reference_images?.map((url: string, i: number) => (
+                                <ImageThumbnail key={i} url={url} label={`Ref${i+1}`} onClick={() => setExpandedImage(url)} />
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Video Grid */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            {modelIds.map((modelId: string) => {
+                              const r = results[modelId];
+                              const videoUrl = r.url || r.result?.url;
+                              const status = r.status;
+                              const latency = r.latency;
+                              const error = r.error;
+                              const isVeo = modelId.toLowerCase().includes('veo');
+                              const isKling = modelId.toLowerCase().includes('kling');
+                              const isSeedance = modelId.toLowerCase().includes('seedance');
+                              const accentColor = isVeo ? 'indigo' : isKling ? 'pink' : isSeedance ? 'emerald' : 'gray';
+
+                              return (
+                                <div key={modelId} className={`bg-[#06080b] border rounded-2xl overflow-hidden transition-all ${status === 'success' && videoUrl ? `border-${accentColor}-500/20` : status === 'error' ? 'border-red-500/20' : 'border-white/5'}`}>
+                                  {/* Video / Placeholder */}
+                                  <div className="aspect-video bg-black/50 relative">
+                                    {status === 'success' && videoUrl ? (
+                                      <video
+                                        src={formatUrl(videoUrl)}
+                                        controls
+                                        preload="metadata"
+                                        className="w-full h-full object-contain"
+                                        playsInline
+                                      />
+                                    ) : status === 'generating' ? (
+                                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-2" />
+                                        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Generating...</span>
+                                      </div>
+                                    ) : status === 'error' ? (
+                                      <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
+                                        <AlertCircle className="w-8 h-8 text-red-500/50 mb-2" />
+                                        <span className="text-[10px] text-red-400 font-bold uppercase tracking-widest mb-2">Failed</span>
+                                        <p className="text-[9px] text-red-300/60 text-center line-clamp-3 font-mono">{error}</p>
+                                      </div>
+                                    ) : (
+                                      <div className="absolute inset-0 flex items-center justify-center">
+                                        <Video className="w-8 h-8 text-gray-700" />
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Model Info Bar */}
+                                  <div className="p-3 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-black border border-white/10 ${isVeo ? 'bg-[#0f1115] text-indigo-400' : isKling ? 'bg-[#1a1c22] text-pink-400' : isSeedance ? 'bg-[#12141a] text-emerald-400' : 'bg-[#1a1c23] text-gray-400'}`}>
+                                        {modelId.charAt(0).toUpperCase()}
+                                      </div>
+                                      <div>
+                                        <div className="text-[11px] font-bold text-white">{modelId}</div>
+                                        {latency != null && (
+                                          <div className="flex items-center gap-1 text-[9px] text-gray-500">
+                                            <Clock className="w-3 h-3" /> {typeof latency === 'number' ? `${latency.toFixed(1)}s` : latency}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className={`w-2 h-2 rounded-full ${status === 'success' && videoUrl ? 'bg-emerald-500' : status === 'error' ? 'bg-red-500' : status === 'generating' ? 'bg-indigo-500 animate-pulse' : 'bg-gray-700'}`} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Error Summary */}
+                          {job.error && (
+                            <div className="flex items-start gap-3 text-[11px] text-red-100 bg-red-500/10 border border-red-500/20 px-4 py-3 rounded-xl">
+                              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-400" />
+                              <span className="font-mono leading-tight break-words">{job.error}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         )}
