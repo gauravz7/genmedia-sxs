@@ -949,9 +949,14 @@ async def get_stats(ldap: Optional[str] = Query(None), tag: Optional[str] = Quer
             sums, counts = {}, {}
             for s in score_list:
                 for k, v in s.items():
+                    # Skip scores of 5 — it is the default value and
+                    # indicates the evaluator did not actively rate this
+                    # criterion, which would skew averages.
+                    if v == 5:
+                        continue
                     sums[k] = sums.get(k, 0) + v
                     counts[k] = counts.get(k, 0) + 1
-            return {k: round(sums[k] / counts[k], 2) for k in sums}
+            return {k: round(sums[k] / counts[k], 2) for k in sums if counts.get(k)}
 
         leaderboard = []
         for mid, data in skus.items():
