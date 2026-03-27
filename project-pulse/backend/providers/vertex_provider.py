@@ -11,7 +11,7 @@ from util.gcs_utils import upload_from_url, upload_from_bytes, https_to_gs, get_
 
 load_dotenv()
 
-PROJECT_ID = os.getenv("GCP_PROJECT_ID", "video") # Default to 'video' as per user colab
+PROJECT_ID = os.getenv("GCP_PROJECT_ID", "vital-octagon-19612")
 OUTPUT_GCS = os.getenv("OUTPUT_GCS_BUCKET", "")
 
 def _get_endpoints(model_id: str):
