@@ -1023,10 +1023,12 @@ export default function AdminConsole() {
                               const isVeo = modelId.toLowerCase().includes('veo');
                               const isKling = modelId.toLowerCase().includes('kling');
                               const isSeedance = modelId.toLowerCase().includes('seedance');
-                              const accentColor = isVeo ? 'indigo' : isKling ? 'pink' : isSeedance ? 'emerald' : 'gray';
+                              const borderColor = status === 'success' && videoUrl
+                                ? (isVeo ? 'border-indigo-500/20' : isKling ? 'border-pink-500/20' : isSeedance ? 'border-emerald-500/20' : 'border-gray-500/20')
+                                : status === 'error' ? 'border-red-500/20' : 'border-white/5';
 
                               return (
-                                <div key={modelId} className={`bg-[#06080b] border rounded-2xl overflow-hidden transition-all ${status === 'success' && videoUrl ? `border-${accentColor}-500/20` : status === 'error' ? 'border-red-500/20' : 'border-white/5'}`}>
+                                <div key={modelId} className={`bg-[#06080b] border rounded-2xl overflow-hidden transition-all ${borderColor}`}>
                                   {/* Video / Placeholder */}
                                   <div className="aspect-video bg-black/50 relative">
                                     {status === 'success' && videoUrl ? (
