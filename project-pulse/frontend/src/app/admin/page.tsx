@@ -209,6 +209,18 @@ export default function AdminConsole() {
     const successVideos = modelIds.filter(m => results[m].status === 'success' && (results[m].url || results[m].result?.url));
     if (successVideos.length === 0) return;
 
+    // Resolve relative URLs to absolute for standalone HTML
+    const toAbsoluteUrl = (url?: string) => {
+      if (!url) return '';
+      const formatted = formatUrl(url);
+      if (!formatted) return '';
+      if (formatted.startsWith('/')) {
+        const base = API_BASE_URL || window.location.origin;
+        return `${base}${formatted}`;
+      }
+      return formatted;
+    };
+
     const promptId = job.prompt_id || job.id;
     const promptText = job.text || job.prompt || '';
     const tags = (job.categories || []).join(', ');
@@ -218,11 +230,11 @@ export default function AdminConsole() {
     // Build input images HTML
     let inputImagesHTML = '';
     const inputImages: { label: string; url: string }[] = [];
-    if (job.start_image_url) inputImages.push({ label: 'Start Frame', url: job.start_image_url });
-    if (job.end_image_url) inputImages.push({ label: 'End Frame', url: job.end_image_url });
+    if (job.start_image_url) inputImages.push({ label: 'Start Frame', url: toAbsoluteUrl(job.start_image_url) });
+    if (job.end_image_url) inputImages.push({ label: 'End Frame', url: toAbsoluteUrl(job.end_image_url) });
     if (job.reference_images) {
       job.reference_images.forEach((url: string, i: number) => {
-        if (url) inputImages.push({ label: `Reference ${i + 1}`, url });
+        if (url) inputImages.push({ label: `Reference ${i + 1}`, url: toAbsoluteUrl(url) });
       });
     }
     if (inputImages.length > 0) {
@@ -243,7 +255,7 @@ export default function AdminConsole() {
     // Build video cards
     const videoCardsHTML = modelIds.map(modelId => {
       const r = results[modelId];
-      const videoUrl = formatUrl(r.url || r.result?.url);
+      const videoUrl = toAbsoluteUrl(r.url || r.result?.url);
       const status = r.status;
       const latency = r.latency;
       const error = r.error;
