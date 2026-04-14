@@ -6,7 +6,7 @@ import {
   Target, Database, ArrowRight, CheckCircle2,
   AlertCircle, Loader2, Zap, Info, ShieldCheck, Image as ImageIcon, Link as LinkIcon,
   PlayCircle, StopCircle, UploadCloud, X, Tag, Filter, Eye, Clock, Video,
-  ChevronDown, ChevronUp, RefreshCw, Trash2, Download
+  ChevronDown, ChevronUp, RefreshCw, Trash2, Download, Share2
 } from 'lucide-react';
 
 const PRESET_CATEGORIES = ["Studio Shots", "Beauty", "Animation", "Model Bug Backlog"];
@@ -201,6 +201,214 @@ export default function AdminConsole() {
     if (!confirm("Delete this model?")) return;
     await fetch(`${API_BASE_URL}/api/models/${mid}`, { method: "DELETE" });
     fetchModels();
+  };
+
+  const handleExportHTML = (job: any) => {
+    const results = job.results || {};
+    const modelIds = Object.keys(results);
+    const successVideos = modelIds.filter(m => results[m].status === 'success' && (results[m].url || results[m].result?.url));
+    if (successVideos.length === 0) return;
+
+    const promptId = job.prompt_id || job.id;
+    const promptText = job.text || job.prompt || '';
+    const tags = (job.categories || []).join(', ');
+    const ratio = job.ratio || '16:9';
+    const timestamp = job.timestamp || '';
+
+    // Build input images HTML
+    let inputImagesHTML = '';
+    const inputImages: { label: string; url: string }[] = [];
+    if (job.start_image_url) inputImages.push({ label: 'Start Frame', url: job.start_image_url });
+    if (job.end_image_url) inputImages.push({ label: 'End Frame', url: job.end_image_url });
+    if (job.reference_images) {
+      job.reference_images.forEach((url: string, i: number) => {
+        if (url) inputImages.push({ label: `Reference ${i + 1}`, url });
+      });
+    }
+    if (inputImages.length > 0) {
+      inputImagesHTML = `
+        <div class="section">
+          <h2>Input Images</h2>
+          <div class="input-images">
+            ${inputImages.map(img => `
+              <div class="input-img-card">
+                <img src="${img.url}" alt="${img.label}" />
+                <span class="input-img-label">${img.label}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>`;
+    }
+
+    // Build video cards
+    const videoCardsHTML = modelIds.map(modelId => {
+      const r = results[modelId];
+      const videoUrl = formatUrl(r.url || r.result?.url);
+      const status = r.status;
+      const latency = r.latency;
+      const error = r.error;
+
+      const familyClass = modelId.toLowerCase().includes('veo') ? 'veo'
+        : modelId.toLowerCase().includes('kling') ? 'kling'
+        : modelId.toLowerCase().includes('seedance') ? 'seedance'
+        : modelId.toLowerCase().includes('grok') ? 'grok' : 'other';
+
+      if (status === 'success' && videoUrl) {
+        return `
+          <div class="video-card ${familyClass}">
+            <div class="video-wrapper">
+              <video controls preload="metadata" playsinline>
+                <source src="${videoUrl}" type="video/mp4" />
+              </video>
+            </div>
+            <div class="model-info">
+              <div class="model-badge ${familyClass}">${modelId.charAt(0).toUpperCase()}</div>
+              <div class="model-details">
+                <div class="model-name">${modelId}</div>
+                ${latency != null ? `<div class="model-latency">${typeof latency === 'number' ? latency.toFixed(1) + 's' : latency}</div>` : ''}
+              </div>
+              <div class="status-dot success"></div>
+            </div>
+          </div>`;
+      } else if (status === 'error') {
+        return `
+          <div class="video-card error">
+            <div class="video-wrapper error-placeholder">
+              <div class="error-content">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                <span>Failed</span>
+                <p class="error-msg">${(error || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 150)}</p>
+              </div>
+            </div>
+            <div class="model-info">
+              <div class="model-badge other">${modelId.charAt(0).toUpperCase()}</div>
+              <div class="model-details">
+                <div class="model-name">${modelId}</div>
+              </div>
+              <div class="status-dot error"></div>
+            </div>
+          </div>`;
+      }
+      return '';
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Pulse — ${promptId}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #020408; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-height: 100vh; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 40px 32px 80px; }
+  .header { margin-bottom: 48px; }
+  .header-top { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899); display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 18px; color: white; }
+  .logo-text { font-size: 22px; font-weight: 700; color: white; }
+  .logo-text span { background: linear-gradient(90deg, #818cf8, #c084fc, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 14px; border-radius: 999px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em; }
+  .badge-id { background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); color: #c084fc; }
+  .badge-ratio { background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); color: #818cf8; }
+  .badge-tag { background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.15); color: #818cf8; }
+  .badge-time { color: #64748b; font-size: 11px; font-weight: 400; }
+  .prompt-box { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 28px 32px; }
+  .prompt-text { font-size: 17px; line-height: 1.7; color: #cbd5e1; font-weight: 300; }
+  .prompt-text::before { content: open-quote; font-size: 28px; color: #6366f1; vertical-align: -4px; margin-right: 4px; }
+  .prompt-text::after { content: close-quote; font-size: 28px; color: #6366f1; vertical-align: -4px; margin-left: 4px; }
+  .section { margin-bottom: 32px; }
+  .section h2 { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2em; color: #64748b; margin-bottom: 16px; padding-left: 4px; }
+  .input-images { display: flex; gap: 16px; flex-wrap: wrap; }
+  .input-img-card { position: relative; width: 120px; border-radius: 14px; overflow: hidden; border: 2px solid rgba(255,255,255,0.06); }
+  .input-img-card img { width: 100%; height: 120px; object-fit: cover; display: block; }
+  .input-img-label { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); color: white; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; padding: 5px 8px; text-align: center; }
+  .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 20px; }
+  .video-card { background: #060810; border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; overflow: hidden; transition: border-color 0.3s; }
+  .video-card:hover { border-color: rgba(255,255,255,0.12); }
+  .video-card.veo { border-color: rgba(99,102,241,0.2); }
+  .video-card.kling { border-color: rgba(236,72,153,0.2); }
+  .video-card.seedance { border-color: rgba(16,185,129,0.2); }
+  .video-card.grok { border-color: rgba(245,158,11,0.2); }
+  .video-card.error { border-color: rgba(239,68,68,0.2); }
+  .video-wrapper { aspect-ratio: ${ratio === '9:16' ? '9/16' : '16/9'}; background: rgba(0,0,0,0.5); position: relative; }
+  .video-wrapper video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .error-placeholder { display: flex; align-items: center; justify-content: center; }
+  .error-content { text-align: center; color: rgba(239,68,68,0.5); }
+  .error-content span { display: block; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2em; margin-top: 8px; color: rgba(239,68,68,0.6); }
+  .error-content .error-msg { font-size: 9px; color: rgba(239,68,68,0.4); font-family: monospace; margin-top: 8px; max-width: 250px; word-break: break-word; }
+  .model-info { padding: 14px 16px; display: flex; align-items: center; gap: 10px; }
+  .model-badge { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; border: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; }
+  .model-badge.veo { background: #0f1115; color: #818cf8; }
+  .model-badge.kling { background: #1a1c22; color: #f472b6; }
+  .model-badge.seedance { background: #12141a; color: #34d399; }
+  .model-badge.grok { background: #1a1810; color: #fbbf24; }
+  .model-badge.other { background: #1a1c23; color: #94a3b8; }
+  .model-details { flex: 1; min-width: 0; }
+  .model-name { font-size: 12px; font-weight: 700; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .model-latency { font-size: 10px; color: #64748b; display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+  .model-latency::before { content: ''; display: inline-block; width: 10px; height: 10px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3C/svg%3E"); background-size: contain; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.success { background: #10b981; }
+  .status-dot.error { background: #ef4444; }
+  .footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.05); text-align: center; }
+  .footer p { font-size: 11px; color: #475569; }
+  .play-all-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .play-all-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 12px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); color: #818cf8; font-size: 12px; font-weight: 700; cursor: pointer; transition: background 0.2s; }
+  .play-all-btn:hover { background: rgba(99,102,241,0.2); }
+  .count-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2em; color: #64748b; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="header-top">
+      <div class="logo">
+        <div class="logo-icon">P</div>
+        <div class="logo-text">Project&nbsp;<span>Pulse</span></div>
+      </div>
+    </div>
+    <div class="meta">
+      <span class="badge badge-id">${promptId}</span>
+      <span class="badge badge-ratio">${ratio}</span>
+      ${tags ? tags.split(', ').map((t: string) => `<span class="badge badge-tag">${t}</span>`).join('') : ''}
+      <span class="badge-time">${timestamp}</span>
+    </div>
+    <div class="prompt-box">
+      <p class="prompt-text">${promptText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
+    </div>
+  </div>
+
+  ${inputImagesHTML}
+
+  <div class="section">
+    <div class="play-all-bar">
+      <span class="count-label">${successVideos.length} video${successVideos.length !== 1 ? 's' : ''} generated &middot; ${modelIds.length} models</span>
+      <button class="play-all-btn" onclick="document.querySelectorAll('video').forEach(v=>{v.currentTime=0;v.play()})">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Play All
+      </button>
+    </div>
+    <div class="video-grid">
+      ${videoCardsHTML}
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>Exported from Project Pulse &middot; ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+  </div>
+</div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${promptId}_comparison.html`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleGenerateImage = async (field: string) => {
@@ -1016,17 +1224,25 @@ export default function AdminConsole() {
                             return (
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{successVideos.length} video{successVideos.length > 1 ? 's' : ''} generated</span>
-                                <button
-                                  onClick={() => {
-                                    for (const m of successVideos) {
-                                      const url = formatUrl(results[m].url || results[m].result?.url);
-                                      if (url) window.open(url, '_blank');
-                                    }
-                                  }}
-                                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[11px] font-bold hover:bg-indigo-500/20 transition-all"
-                                >
-                                  <Download className="w-4 h-4" /> Open All Videos
-                                </button>
+                                <div className="flex items-center gap-3">
+                                  <button
+                                    onClick={() => handleExportHTML(job)}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[11px] font-bold hover:bg-purple-500/20 transition-all"
+                                  >
+                                    <Share2 className="w-4 h-4" /> Export HTML
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      for (const m of successVideos) {
+                                        const url = formatUrl(results[m].url || results[m].result?.url);
+                                        if (url) window.open(url, '_blank');
+                                      }
+                                    }}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[11px] font-bold hover:bg-indigo-500/20 transition-all"
+                                  >
+                                    <Download className="w-4 h-4" /> Open All Videos
+                                  </button>
+                                </div>
                               </div>
                             );
                           })()}
