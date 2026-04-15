@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from providers.fal_provider import generate_with_fal
 from providers.vertex_provider import generate_with_veo, generate_tags_with_gemini
 from util.gcs_utils import upload_from_url, get_signed_url, normalize_gcs_url as _normalize_gcs_url, https_to_gs, get_upload_client
+from util.drive_utils import upload_video_to_drive
 
 load_dotenv()
 
@@ -702,6 +703,18 @@ async def _run_generation_background(job_id: str, target_models: List[Registered
             doc_ref.update({"results": existing_results})
             jobs_manager.invalidate_cache()
             print(f"Background Job {job_id} completed. Updated {len(response_results)} model(s).")
+
+            # Upload successful videos to Google Drive
+            batch_name = current.get("prompt_id") or job_id
+            for model_key, res in response_results.items():
+                if res.get("status") == "success":
+                    video_url = res.get("url") or (res.get("result", {}) or {}).get("url")
+                    if video_url:
+                        drive_filename = f"{model_key}.mp4"
+                        try:
+                            upload_video_to_drive(video_url, drive_filename, batch_name)
+                        except Exception as drive_err:
+                            print(f"Drive upload failed for {model_key}: {drive_err}")
         else:
             print(f"ERROR: Job {job_id} not found in Firestore after generation.")
     except Exception as e:
