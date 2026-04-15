@@ -10,7 +10,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 
 DRIVE_PARENT_FOLDER_ID = os.getenv(
-    "DRIVE_PARENT_FOLDER_ID", "1yfUIQX5FnkgZ_LDtJOeKClLt1yd-rmR2"
+    "DRIVE_PARENT_FOLDER_ID", "0ABrvNdvu6qXtUk9PVA"
 )
 # User to impersonate via domain-wide delegation
 DRIVE_IMPERSONATE_USER = os.getenv("DRIVE_IMPERSONATE_USER", "")
@@ -23,9 +23,9 @@ DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 def _get_drive_service():
     global _DRIVE_SERVICE
 
-    # Use Application Default Credentials (user credentials from
-    # `gcloud auth application-default login --scopes=...drive...`).
-    # This gives us user-owned storage quota for uploads.
+    # Use Application Default Credentials — on Cloud Run this is the SA,
+    # which works because the target folder is in a Shared Drive where
+    # the SA has Content Manager access (no personal storage quota needed).
     creds, _ = google.auth.default(scopes=DRIVE_SCOPES)
     if not creds.valid:
         creds.refresh(Request())
