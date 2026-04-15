@@ -1,25 +1,35 @@
 import os
+import json
+import subprocess
 import requests
 import google.auth
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 
 DRIVE_PARENT_FOLDER_ID = os.getenv(
     "DRIVE_PARENT_FOLDER_ID", "1yfUIQX5FnkgZ_LDtJOeKClLt1yd-rmR2"
 )
+# User to impersonate via domain-wide delegation
+DRIVE_IMPERSONATE_USER = os.getenv("DRIVE_IMPERSONATE_USER", "")
 
 _DRIVE_SERVICE = None
+
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
 def _get_drive_service():
     global _DRIVE_SERVICE
-    if _DRIVE_SERVICE is None:
-        credentials, _ = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/drive"]
-        )
-        credentials.refresh(Request())
-        _DRIVE_SERVICE = build("drive", "v3", credentials=credentials)
+
+    # Use Application Default Credentials (user credentials from
+    # `gcloud auth application-default login --scopes=...drive...`).
+    # This gives us user-owned storage quota for uploads.
+    creds, _ = google.auth.default(scopes=DRIVE_SCOPES)
+    if not creds.valid:
+        creds.refresh(Request())
+    _DRIVE_SERVICE = build("drive", "v3", credentials=creds)
     return _DRIVE_SERVICE
 
 
@@ -31,7 +41,8 @@ def _find_or_create_folder(name: str, parent_id: str) -> str:
         f"and '{parent_id}' in parents and trashed = false"
     )
     results = service.files().list(
-        q=query, fields="files(id, name)", spaces="drive"
+        q=query, fields="files(id, name)", spaces="drive",
+        supportsAllDrives=True, includeItemsFromAllDrives=True,
     ).execute()
     files = results.get("files", [])
     if files:
@@ -43,7 +54,9 @@ def _find_or_create_folder(name: str, parent_id: str) -> str:
         "mimeType": "application/vnd.google-apps.folder",
         "parents": [parent_id],
     }
-    folder = service.files().create(body=metadata, fields="id").execute()
+    folder = service.files().create(
+        body=metadata, fields="id", supportsAllDrives=True,
+    ).execute()
     return folder["id"]
 
 
@@ -60,7 +73,7 @@ def upload_video_to_drive(
     """
     try:
         # Download the video bytes
-        from util.gcs_utils import download_blob_to_bytes, https_to_gs
+        from util.gcs_utils import download_blob_to_bytes
 
         is_gcs = (
             video_url.startswith("gs://")
@@ -80,7 +93,7 @@ def upload_video_to_drive(
         # Find or create the batch subfolder
         folder_id = _find_or_create_folder(batch_name, DRIVE_PARENT_FOLDER_ID)
 
-        # Upload
+        # Upload to shared drive
         service = _get_drive_service()
         file_metadata = {
             "name": filename,
@@ -89,7 +102,10 @@ def upload_video_to_drive(
         media = MediaInMemoryUpload(data, mimetype="video/mp4", resumable=True)
         uploaded = (
             service.files()
-            .create(body=file_metadata, media_body=media, fields="id")
+            .create(
+                body=file_metadata, media_body=media, fields="id",
+                supportsAllDrives=True,
+            )
             .execute()
         )
         file_id = uploaded.get("id", "")
