@@ -121,7 +121,7 @@ export default function AdminConsole() {
     fetchModels();
     fetchJobs();
     fetchTags();
-    const interval = setInterval(fetchJobs, 5000);
+    const interval = setInterval(fetchJobs, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -591,15 +591,18 @@ export default function AdminConsole() {
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i];
           if (row.length > 2 && row[0]) {
+            const colJ = String(row[9] ?? "").trim().toUpperCase();
+            // Only generate when column J is explicitly "FALSE"; blank or TRUE = skip
+            const isSuccess = colJ !== "FALSE";
             mapped.push({
               promptId: row[0], mode: (row[1] || "").toLowerCase().trim(),
               text: row[2], startImg: row[3], endImg: row[4],
               ref1: row[5], ref2: row[6], ref3: row[7], model: row[8],
-              success: String(row[9]).trim().toUpperCase() === "TRUE",
+              success: isSuccess,
               error: row[10] || "",
               ratio: (row[11] || "16:9").trim(),
               rowIndex: i + 1,
-              batchStatus: String(row[9]).trim().toUpperCase() === "TRUE" ? "done" : "pending" as "pending" | "running" | "done" | "error"
+              batchStatus: isSuccess ? "done" : "pending" as "pending" | "running" | "done" | "error"
             });
           }
         }
@@ -1200,7 +1203,7 @@ export default function AdminConsole() {
                           try {
                             const res = await fetch(`${API_BASE_URL}/api/admin/jobs/${job.id}`, { method: 'DELETE' });
                             if (!res.ok) throw new Error('Failed to delete');
-                            setGenJobs((prev: any[]) => prev.filter((j: any) => j.id !== job.id));
+                            setPrompts((prev: any[]) => prev.filter((j: any) => j.id !== job.id));
                           } catch (err) {
                             alert('Failed to delete job');
                           }
@@ -1259,37 +1262,55 @@ export default function AdminConsole() {
                             );
                           })()}
 
-                          {/* Retry Failed Models */}
+                          {/* Retry Failed / Stuck Models */}
                           {(() => {
                             const failedModels = modelIds.filter((m: string) => results[m].status === 'error');
-                            if (failedModels.length === 0) return null;
+                            const stuckModels = modelIds.filter((m: string) => results[m].status === 'generating');
+                            if (failedModels.length === 0 && stuckModels.length === 0) return null;
+
+                            const retryHandler = async (includeStuck: boolean) => {
+                              const count = includeStuck ? failedModels.length + stuckModels.length : failedModels.length;
+                              const label = includeStuck ? 'failed + stuck' : 'failed';
+                              if (!confirm(`Retry ${count} ${label} model(s)? This will incur generation costs.`)) return;
+                              try {
+                                const qs = includeStuck ? '?include_stuck=true' : '';
+                                const res = await fetch(`${API_BASE_URL}/api/admin/jobs/${job.id}/retry${qs}`, { method: 'POST' });
+                                if (!res.ok) {
+                                  const err = await res.json().catch(() => ({}));
+                                  throw new Error(err.detail || 'Failed to retry');
+                                }
+                                const data = await res.json();
+                                setPrompts((prev: any[]) => prev.map((j: any) => {
+                                  if (j.id !== job.id) return j;
+                                  const updated = { ...j, results: { ...j.results } };
+                                  for (const mid of data.retrying_models || []) {
+                                    updated.results[mid] = { status: 'generating' };
+                                  }
+                                  return updated;
+                                }));
+                              } catch (err: any) {
+                                alert(err?.message || 'Failed to retry models');
+                              }
+                            };
+
                             return (
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold uppercase tracking-widest text-red-400">{failedModels.length} model{failedModels.length > 1 ? 's' : ''} failed</span>
-                                <button
-                                  onClick={async () => {
-                                    if (!confirm(`Retry ${failedModels.length} failed model(s)? This will incur generation costs.`)) return;
-                                    try {
-                                      const res = await fetch(`${API_BASE_URL}/api/admin/jobs/${job.id}/retry`, { method: 'POST' });
-                                      if (!res.ok) throw new Error('Failed to retry');
-                                      const data = await res.json();
-                                      // Update local state to show generating
-                                      setGenJobs((prev: any[]) => prev.map((j: any) => {
-                                        if (j.id !== job.id) return j;
-                                        const updated = { ...j, results: { ...j.results } };
-                                        for (const mid of data.retrying_models || failedModels) {
-                                          updated.results[mid] = { status: 'generating' };
-                                        }
-                                        return updated;
-                                      }));
-                                    } catch (err) {
-                                      alert('Failed to retry models');
-                                    }
-                                  }}
-                                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold hover:bg-red-500/20 transition-all"
-                                >
-                                  <RefreshCw className="w-4 h-4" /> Retry Failed
-                                </button>
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-3">
+                                  {failedModels.length > 0 && <span className="text-[10px] font-bold uppercase tracking-widest text-red-400">{failedModels.length} failed</span>}
+                                  {stuckModels.length > 0 && <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">{stuckModels.length} stuck</span>}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {failedModels.length > 0 && (
+                                    <button onClick={() => retryHandler(false)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold hover:bg-red-500/20 transition-all">
+                                      <RefreshCw className="w-4 h-4" /> Retry Failed
+                                    </button>
+                                  )}
+                                  {stuckModels.length > 0 && (
+                                    <button onClick={() => retryHandler(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-bold hover:bg-amber-500/20 transition-all">
+                                      <RefreshCw className="w-4 h-4" /> Retry All
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             );
                           })()}
@@ -1298,6 +1319,8 @@ export default function AdminConsole() {
                           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             {modelIds.map((modelId: string) => {
                               const r = results[modelId];
+                              const history = (job.generation_history || {})[modelId] || [];
+                              const totalVersions = history.length + (r.status === 'success' ? 1 : 0);
                               const videoUrl = r.url || r.result?.url;
                               const status = r.status;
                               const latency = r.latency;
@@ -1337,6 +1360,12 @@ export default function AdminConsole() {
                                         <Video className="w-8 h-8 text-gray-700" />
                                       </div>
                                     )}
+                                    {/* Version badge */}
+                                    {totalVersions > 1 && (
+                                      <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/30 text-[9px] font-bold text-purple-300">
+                                        v{totalVersions} of {totalVersions}
+                                      </div>
+                                    )}
                                   </div>
 
                                   {/* Model Info Bar */}
@@ -1365,7 +1394,6 @@ export default function AdminConsole() {
                                           title="Download video"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            // For signed GCS URLs, open in new tab (download attr may not work cross-origin)
                                             window.open(formatUrl(videoUrl), '_blank');
                                             e.preventDefault();
                                           }}
@@ -1376,6 +1404,42 @@ export default function AdminConsole() {
                                       <div className={`w-2 h-2 rounded-full ${status === 'success' && videoUrl ? 'bg-emerald-500' : status === 'error' ? 'bg-red-500' : status === 'generating' ? 'bg-indigo-500 animate-pulse' : 'bg-gray-700'}`} />
                                     </div>
                                   </div>
+
+                                  {/* Previous Versions */}
+                                  {history.length > 0 && (
+                                    <div className="border-t border-white/5 p-2">
+                                      <details className="group/hist">
+                                        <summary className="cursor-pointer text-[9px] font-bold text-gray-500 uppercase tracking-widest hover:text-gray-300 transition-colors flex items-center gap-1">
+                                          <ChevronDown className="w-3 h-3 group-open/hist:rotate-180 transition-transform" />
+                                          {history.length} previous version{history.length > 1 ? 's' : ''}
+                                        </summary>
+                                        <div className="mt-2 space-y-2">
+                                          {history.slice().reverse().map((ver: any, vi: number) => {
+                                            const verUrl = ver.url || ver.result?.url;
+                                            return (
+                                              <div key={vi} className="bg-white/[0.02] border border-white/5 rounded-xl overflow-hidden">
+                                                {verUrl && (
+                                                  <div className="aspect-video bg-black/50">
+                                                    <video src={formatUrl(verUrl)} controls preload="metadata" className="w-full h-full object-contain" playsInline />
+                                                  </div>
+                                                )}
+                                                <div className="px-3 py-2 flex items-center justify-between">
+                                                  <span className="text-[9px] text-gray-500">
+                                                    v{history.length - vi} &middot; {ver.latency ? `${ver.latency.toFixed(1)}s` : ''} &middot; {ver.archived_at ? new Date(ver.archived_at * 1000).toLocaleString() : ''}
+                                                  </span>
+                                                  {verUrl && (
+                                                    <button onClick={() => window.open(formatUrl(verUrl), '_blank')} className="text-[9px] text-indigo-400 hover:text-indigo-300">
+                                                      Open
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </details>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}

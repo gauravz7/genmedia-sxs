@@ -69,3 +69,4 @@ websockets==14.1
 yarl==1.22.0
 google-api-python-client
 google-auth-httplib2
+python-pptx

@@ -7,14 +7,19 @@ service_keys.json
 claude_sa.json
 credentials.json
 signing_keys.json
+signing_keys.json.bak
 *.pem
 *.key
 *.p12
+*.p8
 *.jks
 *.keystore
 .env
 .env.*
 !.env.example
+
+# ──── Generated / Test Artifacts ────
+*.pptx
 
 # ──── Backups ────
 backups/

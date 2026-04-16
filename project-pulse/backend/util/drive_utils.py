@@ -1,3 +1,4 @@
+import io
 import os
 import json
 import subprocess
@@ -7,7 +8,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaInMemoryUpload
+from googleapiclient.http import MediaIoBaseUpload
 
 DRIVE_PARENT_FOLDER_ID = os.getenv(
     "DRIVE_PARENT_FOLDER_ID", "0ABrvNdvu6qXtUk9PVA"
@@ -93,22 +94,24 @@ def upload_video_to_drive(
         # Find or create the batch subfolder
         folder_id = _find_or_create_folder(batch_name, DRIVE_PARENT_FOLDER_ID)
 
-        # Upload to shared drive
+        # Upload to shared drive with resumable chunked upload (10 MB chunks)
         service = _get_drive_service()
         file_metadata = {
             "name": filename,
             "parents": [folder_id],
         }
-        media = MediaInMemoryUpload(data, mimetype="video/mp4", resumable=True)
-        uploaded = (
-            service.files()
-            .create(
-                body=file_metadata, media_body=media, fields="id",
-                supportsAllDrives=True,
-            )
-            .execute()
+        media = MediaIoBaseUpload(
+            io.BytesIO(data), mimetype="video/mp4",
+            resumable=True, chunksize=10 * 1024 * 1024,
         )
-        file_id = uploaded.get("id", "")
+        request = service.files().create(
+            body=file_metadata, media_body=media, fields="id",
+            supportsAllDrives=True,
+        )
+        response = None
+        while response is None:
+            _, response = request.next_chunk()
+        file_id = response.get("id", "")
         print(f"Drive upload OK: {filename} -> folder {batch_name} (id={file_id})")
         return file_id
     except Exception as e:

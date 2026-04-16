@@ -97,7 +97,13 @@ async def _generate_with_veo_sdk(prompt: str, ratio: str = "16:9", image_url: st
         
         # Set output_gcs_uri to directly save the video to GCS
         bucket = os.getenv("GCS_BUCKET_NAME", "project-pulse")
-        config_kwargs["output_gcs_uri"] = OUTPUT_GCS if OUTPUT_GCS else f"gs://{bucket}/"
+        output_uri = OUTPUT_GCS if OUTPUT_GCS else bucket
+        # Ensure it's a full gs:// URI
+        if not output_uri.startswith("gs://"):
+            output_uri = f"gs://{output_uri}/"
+        if not output_uri.endswith("/"):
+            output_uri += "/"
+        config_kwargs["output_gcs_uri"] = output_uri
         
         if config_refs:
             config_kwargs["reference_images"] = config_refs
@@ -194,8 +200,15 @@ async def generate_with_veo(prompt: str, ratio: str = "16:9", image_url: str = N
                     # For Veo 3.1 R2V, it uses 'reference_images' in the instance
                     instance["reference_images"] = vertex_refs
             
+            # Ensure storageUri is a valid gs:// URI
+            storage_uri = OUTPUT_GCS if OUTPUT_GCS else os.getenv("GCS_BUCKET_NAME", "project-pulse")
+            if not storage_uri.startswith("gs://"):
+                storage_uri = f"gs://{storage_uri}/"
+            if not storage_uri.endswith("/"):
+                storage_uri += "/"
+
             parameters = {
-                "storageUri": OUTPUT_GCS,
+                "storageUri": storage_uri,
                 "sampleCount": 1,
                 "seed": 777,
                 "aspectRatio": ratio,
@@ -255,9 +268,10 @@ async def generate_with_veo(prompt: str, ratio: str = "16:9", image_url: str = N
             
         except Exception as e:
             latency = round(time.time() - start_time, 2)
-            # Catch transient errors in _send_request as well if possible
-            if "503" in str(e) or "high load" in str(e).lower() and attempt < max_retries:
-                print(f"Vertex request error ({e}), retrying in {retry_delay}s... (Attempt {attempt+1}/{max_retries})")
+            err_str = str(e).lower()
+            is_transient = "503" in str(e) or "high load" in err_str or "ssl" in err_str or "eof" in err_str or "connection" in err_str
+            if is_transient and attempt < max_retries:
+                print(f"Vertex transient error ({e}), retrying in {retry_delay}s... (Attempt {attempt+1}/{max_retries})")
                 time.sleep(retry_delay)
                 continue
             return {"model": f"Veo ({model_id})", "status": "error", "error": str(e), "latency": latency}

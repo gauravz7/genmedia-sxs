@@ -76,7 +76,7 @@ async def generate_with_fal(model_id: str, prompt: str, ratio: str = "16:9", ima
             arguments["duration"] = 10 # Grok default
         elif "seedance-2.0" in model_id:
             arguments["aspect_ratio"] = ratio
-            arguments["duration"] = 10
+            arguments["duration"] = "10"
             arguments["generate_audio"] = True
         else:
             arguments["aspect_ratio"] = ratio

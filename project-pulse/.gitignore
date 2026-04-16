@@ -42,10 +42,15 @@ python3.1/
 *.pem
 private.key
 signing_keys.json
+signing_keys.json.bak
+*.json.bak
 client_secret.json
 credentials.json
 service-account*.json
 gcp-keys.json
+
+# Generated / Test Artifacts
+*.pptx
 
 # Local Databases and JSON states
 eval_jobs.json

@@ -10,10 +10,10 @@ from collections import defaultdict, Counter
 from typing import List, Dict, Optional
 from urllib.parse import quote, unquote
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Header, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Header, BackgroundTasks, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, HTMLResponse, Response
+from fastapi.responses import JSONResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -21,7 +21,6 @@ from dotenv import load_dotenv
 from providers.fal_provider import generate_with_fal
 from providers.vertex_provider import generate_with_veo, generate_tags_with_gemini
 from util.gcs_utils import upload_from_url, get_signed_url, normalize_gcs_url as _normalize_gcs_url, https_to_gs, get_upload_client
-from util.drive_utils import upload_video_to_drive
 
 load_dotenv()
 
@@ -133,6 +132,7 @@ class Job(BaseModel):
     reference_image_url: Optional[str] = None
     reference_images: Optional[List[str]] = None
     results: Dict[str, dict]
+    generation_history: Dict[str, list] = {}
 
     def __init__(self, **data):
         # Migrate legacy single-category field
@@ -479,10 +479,13 @@ async def update_batch_sheet(req: SheetUpdateRequest):
 # ===================================================================
 @app.get("/api/admin/jobs")
 async def get_admin_jobs():
-    jobs = jobs_manager.get_all()
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    docs = db.collection("eval_jobs").order_by("timestamp", direction=_fs.Query.DESCENDING).stream()
     results_list = []
-    for job in jobs:
-        d = job.dict()
+    for doc in docs:
+        d = doc.to_dict()
+        d["id"] = doc.id
         # Sign input images
         for key in ("start_image_url", "end_image_url", "reference_image_url"):
             if d.get(key):
@@ -490,13 +493,22 @@ async def get_admin_jobs():
         if d.get("reference_images"):
             d["reference_images"] = [get_signed_url(normalize_gcs_url(u)) for u in d["reference_images"]]
         # Sign result URLs
-        for model_id, res in d["results"].items():
+        for model_id, res in d.get("results", {}).items():
             if "url" in res and res["url"]:
                 if res["url"].startswith("gs://") or f"storage.googleapis.com/{GCS_BUCKET_NAME}" in res["url"]:
                     res["url"] = get_signed_url(normalize_gcs_url(res["url"]))
             if "result" in res and isinstance(res["result"], dict) and "url" in res["result"] and res["result"]["url"]:
                 if res["result"]["url"].startswith("gs://") or f"storage.googleapis.com/{GCS_BUCKET_NAME}" in res["result"]["url"]:
                     res["result"]["url"] = get_signed_url(normalize_gcs_url(res["result"]["url"]))
+        # Sign generation history URLs
+        for model_id, versions in d.get("generation_history", {}).items():
+            for ver in versions:
+                if "url" in ver and ver["url"]:
+                    if ver["url"].startswith("gs://") or f"storage.googleapis.com/{GCS_BUCKET_NAME}" in ver["url"]:
+                        ver["url"] = get_signed_url(normalize_gcs_url(ver["url"]))
+                if "result" in ver and isinstance(ver["result"], dict) and "url" in ver["result"] and ver["result"]["url"]:
+                    if ver["result"]["url"].startswith("gs://") or f"storage.googleapis.com/{GCS_BUCKET_NAME}" in ver["result"]["url"]:
+                        ver["result"]["url"] = get_signed_url(normalize_gcs_url(ver["result"]["url"]))
         results_list.append(d)
     return results_list
 
@@ -516,8 +528,8 @@ async def delete_job(job_id: str):
 
 
 @app.post("/api/admin/jobs/{job_id}/retry")
-async def retry_failed_models(job_id: str, background_tasks: BackgroundTasks):
-    """Retry only the failed/error models in a job."""
+async def retry_failed_models(job_id: str, background_tasks: BackgroundTasks, include_stuck: bool = False):
+    """Retry failed/error models in a job. With include_stuck=true, also retries models stuck in 'generating'."""
     from google.cloud import firestore as _fs
     db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
     doc_ref = db.collection("eval_jobs").document(job_id)
@@ -528,18 +540,27 @@ async def retry_failed_models(job_id: str, background_tasks: BackgroundTasks):
     data = doc.to_dict()
     results = data.get("results", {})
 
-    # Find models that errored
-    failed_model_ids = [mid for mid, r in results.items() if r.get("status") == "error"]
+    # Find models to retry: errored + optionally stuck "generating" models
+    retry_statuses = {"error"}
+    if include_stuck:
+        retry_statuses.add("generating")
+    failed_model_ids = [mid for mid, r in results.items() if r.get("status") in retry_statuses]
     if not failed_model_ids:
-        return {"status": "no_failures", "job_id": job_id, "message": "No failed models to retry"}
+        return {"status": "no_failures", "job_id": job_id, "message": "No failed or stuck models to retry"}
 
     # Look up registered models
     retry_models = [registry.models[mid] for mid in failed_model_ids if mid in registry.models]
+    skipped = [mid for mid in failed_model_ids if mid not in registry.models]
     if not retry_models:
-        raise HTTPException(status_code=400, detail=f"Failed models not found in registry: {failed_model_ids}")
+        raise HTTPException(status_code=400, detail=f"Models not in registry (re-add them in Models tab): {failed_model_ids}")
+    if skipped:
+        print(f"Retry skipping unregistered models: {skipped}")
+
+    # Only retry models that are in the registry
+    retrying_ids = [m.id for m in retry_models]
 
     # Mark them as generating again
-    for mid in failed_model_ids:
+    for mid in retrying_ids:
         results[mid] = {"status": "generating"}
     doc_ref.update({"results": results})
     jobs_manager.invalidate_cache()
@@ -554,12 +575,12 @@ async def retry_failed_models(job_id: str, background_tasks: BackgroundTasks):
         end_image_url=data.get("end_image_url"),
         reference_image_url=data.get("reference_image_url"),
         reference_images=data.get("reference_images"),
-        model_ids=failed_model_ids,
+        model_ids=retrying_ids,
     )
 
     background_tasks.add_task(_run_generation_background, job_id, retry_models, request, time.time())
 
-    return {"status": "retrying", "job_id": job_id, "retrying_models": failed_model_ids}
+    return {"status": "retrying", "job_id": job_id, "retrying_models": retrying_ids, "skipped_models": skipped}
 
 
 @app.get("/api/admin/jobs/{job_id}/status")
@@ -698,23 +719,35 @@ async def _run_generation_background(job_id: str, target_models: List[Registered
         if doc.exists:
             current = doc.to_dict()
             existing_results = current.get("results", {})
+            generation_history = current.get("generation_history", {})
+
             for k, v in response_results.items():
+                # Archive previous successful result before overwriting
+                if k in existing_results and existing_results[k].get("status") == "success":
+                    prev = existing_results[k]
+                    if k not in generation_history:
+                        generation_history[k] = []
+                    generation_history[k].append({
+                        **prev,
+                        "archived_at": time.time(),
+                    })
+                    print(f"Archived previous result for {k} (version {len(generation_history[k])})")
                 existing_results[k] = v
-            doc_ref.update({"results": existing_results})
+
+            update_data = {"results": existing_results}
+            if generation_history:
+                update_data["generation_history"] = generation_history
+            doc_ref.update(update_data)
             jobs_manager.invalidate_cache()
             print(f"Background Job {job_id} completed. Updated {len(response_results)} model(s).")
 
-            # Upload successful videos to Google Drive
+            # Regenerate HTML slideware with latest results
             batch_name = current.get("prompt_id") or job_id
-            for model_key, res in response_results.items():
-                if res.get("status") == "success":
-                    video_url = res.get("url") or (res.get("result", {}) or {}).get("url")
-                    if video_url:
-                        drive_filename = f"{model_key}.mp4"
-                        try:
-                            upload_video_to_drive(video_url, drive_filename, batch_name)
-                        except Exception as drive_err:
-                            print(f"Drive upload failed for {model_key}: {drive_err}")
+            try:
+                from generate_slideware import generate_for_batch
+                generate_for_batch(batch_name)
+            except Exception as slideware_err:
+                print(f"Slideware generation failed for {batch_name}: {slideware_err}")
         else:
             print(f"ERROR: Job {job_id} not found in Firestore after generation.")
     except Exception as e:
@@ -789,14 +822,23 @@ async def generate_videos(request: PromptRequest, background_tasks: BackgroundTa
             break
 
     if existing_job:
-        # Merge new model slots into the existing job's results
+        # Only generate models that don't already have successful results
+        models_to_generate = []
         for m in target_models:
-            if m.id not in existing_job.results or existing_job.results[m.id].get("status") == "error":
+            if m.id not in existing_job.results or existing_job.results[m.id].get("status") in ("error", "generating", None):
                 existing_job.results[m.id] = {"status": "generating"}
+                models_to_generate.append(m)
+            else:
+                print(f"Skipping {m.id} — already has status '{existing_job.results[m.id].get('status')}'")
+
+        if not models_to_generate:
+            print(f"All requested models already successful for {prompt_id}, skipping generation.")
+            return {"job_id": existing_job.id, "prompt": request.text, "status": "already_complete", "initiation_time": initiation_time}
+
         jobs_manager.save_job(existing_job)
         job_id = existing_job.id
 
-        background_tasks.add_task(_run_generation_background, job_id, target_models, request, initiation_time)
+        background_tasks.add_task(_run_generation_background, job_id, models_to_generate, request, initiation_time)
 
         # Auto-tag if the existing job has no categories
         if not existing_job.categories:
@@ -907,6 +949,15 @@ async def get_random_eval_pair(
                 url = _extract_url(res)
                 if url:
                     groups[group_key][mid] = (job, url)
+
+        # Include regenerations (previous versions) as separate candidates
+        for mid, versions in job.generation_history.items():
+            for vi, ver in enumerate(versions, 1):
+                if ver.get("status") == "success":
+                    url = _extract_url(ver)
+                    if url:
+                        version_label = f"{mid} (v{vi})"
+                        groups[group_key][version_label] = (job, url)
 
     if veo_anchored:
         # Only keep groups that have at least 1 Veo + 1 non-Veo model
@@ -1141,25 +1192,245 @@ async def health_check():
 
 
 @app.get("/api/media")
-async def get_media_proxy(url: str = Query(...)):
+async def get_media_proxy(url: str = Query(...), request: Request = None):
+    from util.gcs_utils import https_to_gs, get_upload_client
+    import urllib.parse
+
     try:
-        from util.gcs_utils import download_blob_to_bytes
-        data = download_blob_to_bytes(url)
+        # Fix malformed gs:/ URLs (single slash instead of double)
+        fixed_url = url
+        if fixed_url.startswith("gs:/") and not fixed_url.startswith("gs://"):
+            fixed_url = "gs://" + fixed_url[4:]
+
+        gs_uri = https_to_gs(fixed_url)
+        if not gs_uri.startswith("gs://"):
+            # Non-GCS URL fallback
+            import requests as req
+            resp = req.get(url, timeout=10)
+            resp.raise_for_status()
+            return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/octet-stream"))
+
+        parts = gs_uri.replace("gs://", "").split("/")
+        bucket_name = parts[0]
+        blob_name = "/".join(parts[1:])
+
+        client = get_upload_client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        blob.reload()  # get metadata (size)
+
+        total_size = blob.size
         ct = "image/jpeg"
         url_lower = url.lower()
         if ".png" in url_lower:
             ct = "image/png"
         elif ".mp4" in url_lower:
             ct = "video/mp4"
-        headers = {
-            "Accept-Ranges": "bytes",
-            "Content-Length": str(len(data)),
-            "Cache-Control": "public, max-age=3600",
-        }
-        return Response(content=data, media_type=ct, headers=headers)
+        elif ".html" in url_lower:
+            ct = "text/html"
+
+        # Handle Range requests for video seeking
+        range_header = request.headers.get("range") if request else None
+        if range_header and total_size:
+            range_match = range_header.replace("bytes=", "").split("-")
+            start = int(range_match[0]) if range_match[0] else 0
+            end = int(range_match[1]) if len(range_match) > 1 and range_match[1] else total_size - 1
+            end = min(end, total_size - 1)
+            length = end - start + 1
+
+            # GCS download_as_bytes end param is exclusive
+            data = blob.download_as_bytes(start=start, end=end + 1)
+            return Response(
+                content=data,
+                status_code=206,
+                media_type=ct,
+                headers={
+                    "Content-Range": f"bytes {start}-{end}/{total_size}",
+                    "Content-Length": str(len(data)),
+                    "Accept-Ranges": "bytes",
+                    "Cache-Control": "public, max-age=3600",
+                },
+            )
+
+        # Stream full file in chunks
+        def stream_blob():
+            with blob.open("rb") as f:
+                while True:
+                    chunk = f.read(2 * 1024 * 1024)  # 2MB chunks
+                    if not chunk:
+                        break
+                    yield chunk
+
+        return StreamingResponse(
+            stream_blob(),
+            media_type=ct,
+            headers={
+                "Content-Length": str(total_size) if total_size else "",
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=3600",
+            },
+        )
     except Exception as e:
         print(f"Error proxying media {url}: {e}")
         raise HTTPException(status_code=404, detail="Failed to load media")
+
+
+# ===================================================================
+# Google Slides generation
+# ===================================================================
+@app.post("/api/slides/generate")
+async def generate_slides(
+    batches: List[str] = Query(default=[]),
+    force_new: bool = Query(default=False),
+    background_tasks: BackgroundTasks = None,
+):
+    """Generate Google Slides presentation with Drive-embedded videos.
+    - batches: list of batch names to include (empty = all)
+    - force_new: create a fresh presentation instead of appending
+    """
+    from generate_google_slides import create_presentation
+    batch_filter = batches if batches else None
+    try:
+        url = create_presentation(batch_filter=batch_filter, force_new=force_new)
+        return {"status": "ok", "url": url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/slides/append/{batch_name}")
+async def append_slides_for_batch(batch_name: str):
+    """Append a single batch to the existing Google Slides presentation."""
+    from generate_google_slides import append_batch_slides
+    try:
+        url = append_batch_slides(batch_name)
+        if url:
+            return {"status": "ok", "url": url}
+        return {"status": "skipped", "message": f"{batch_name} already in presentation or no data"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===================================================================
+# Slideware (HTML)
+# ===================================================================
+@app.get("/slideware")
+async def serve_slideware():
+    """Serve the generated HTML slideware presentation."""
+    path = os.path.join(os.path.dirname(__file__), "slideware.html")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Slideware not generated yet. Run a generation first.")
+    with open(path) as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.post("/api/slideware/regenerate")
+async def regenerate_slideware():
+    """Regenerate the slideware HTML from current Firestore data."""
+    from generate_slideware import fetch_jobs, generate_presentation
+    jobs = fetch_jobs()
+    result = generate_presentation(jobs, output_path=os.path.join(os.path.dirname(__file__), "slideware.html"))
+    if result:
+        return {"status": "ok", "message": f"Generated slideware"}
+    raise HTTPException(status_code=500, detail="No slides generated — no successful videos found")
+
+
+@app.post("/api/slideware/pptx")
+async def generate_pptx_endpoint(batches: List[str] = Query(default=[])):
+    """Generate and download a PPTX with embedded videos for specified batches."""
+    from generate_pptx import generate_pptx
+    out_path = os.path.join(os.path.dirname(__file__), "project_pulse_export.pptx")
+    batch_filter = batches if batches else None
+    result = generate_pptx(batch_filter=batch_filter, output_path=out_path)
+    if not result:
+        raise HTTPException(status_code=500, detail="No slides generated")
+    with open(out_path, "rb") as f:
+        data = f.read()
+    filename = "Project_Pulse.pptx"
+    if batch_filter:
+        filename = f"Project_Pulse_{'_'.join(batch_filter)}.pptx"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/slideware/pptx/download")
+async def download_existing_pptx():
+    """Download the most recently generated PPTX."""
+    for name in ["project_pulse_test.pptx", "project_pulse_export.pptx"]:
+        path = os.path.join(os.path.dirname(__file__), name)
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                data = f.read()
+            return Response(
+                content=data,
+                media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                headers={"Content-Disposition": f'attachment; filename="{name}"'},
+            )
+    raise HTTPException(status_code=404, detail="No PPTX file found. Generate one first via POST /api/slideware/pptx")
+
+
+# ===================================================================
+# Slideware feedback (best video picks + comments)
+# ===================================================================
+class SlideFeedback(BaseModel):
+    batch_name: str
+    model_key: Optional[str] = None
+    tier: str  # "pro" or "fast"
+    user_name: Optional[str] = None
+    comment: Optional[str] = None
+
+
+@app.get("/api/slideware/feedback")
+async def get_slideware_feedback():
+    """Get all feedback (best picks + comments) for slideware."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    docs = db.collection("slideware_feedback").stream()
+    feedback = {}
+    for doc in docs:
+        feedback[doc.id] = doc.to_dict()
+    return feedback
+
+
+@app.post("/api/slideware/feedback/pick")
+async def set_best_video(body: SlideFeedback):
+    """Set the best video pick for a batch+tier."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    doc_id = f"{body.batch_name}__{body.tier}"
+    db.collection("slideware_feedback").document(doc_id).set({
+        "batch_name": body.batch_name,
+        "tier": body.tier,
+        "best_model": body.model_key,
+        "picked_by": body.user_name or "anonymous",
+    }, merge=True)
+    return {"status": "ok"}
+
+
+@app.post("/api/slideware/feedback/comment")
+async def add_comment(body: SlideFeedback):
+    """Add a comment to a batch+tier."""
+    from google.cloud import firestore as _fs
+    import datetime
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    doc_id = f"{body.batch_name}__{body.tier}"
+    doc_ref = db.collection("slideware_feedback").document(doc_id)
+    doc = doc_ref.get()
+    existing = doc.to_dict() if doc.exists else {}
+    comments = existing.get("comments", [])
+    comments.append({
+        "text": body.comment,
+        "user": body.user_name or "anonymous",
+        "timestamp": datetime.datetime.now().isoformat(),
+    })
+    doc_ref.set({
+        "batch_name": body.batch_name,
+        "tier": body.tier,
+        "comments": comments,
+    }, merge=True)
+    return {"status": "ok", "comments": comments}
 
 
 # ===================================================================

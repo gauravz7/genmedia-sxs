@@ -13,18 +13,21 @@ def get_sheet_id_from_url(url_or_id: str) -> str:
 
 def get_sheets_token():
     # Use gcloud to get a Sheets-scoped access token (compute ADC lacks Sheets scope)
-    import subprocess
-    try:
-        result = subprocess.run(
-            ["gcloud", "auth", "print-access-token", "--scopes=https://www.googleapis.com/auth/spreadsheets"],
-            capture_output=True, text=True, timeout=10
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception as e:
-        print(f"gcloud token fallback failed: {e}")
-    # Fallback to ADC
-    credentials, _ = google.auth.default()
+    import shutil, subprocess
+    if shutil.which("gcloud"):
+        try:
+            result = subprocess.run(
+                ["gcloud", "auth", "print-access-token", "--scopes=https://www.googleapis.com/auth/spreadsheets"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception:
+            pass
+    # Fallback to ADC (used on Cloud Run)
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
     if not credentials.valid:
         credentials.refresh(Request())
     return credentials.token
