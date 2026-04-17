@@ -1,5 +1,6 @@
 # OS files
 .DS_Store
+._*
 Thumbs.db
 
 # ──── Secrets & Credentials ────
@@ -54,3 +55,7 @@ project-pulse/backend/static/
 .idea/
 *.swp
 *.swo
+
+# ──── Screenshots / Playwright ────
+*.png
+.playwright-mcp/
