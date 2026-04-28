@@ -50,7 +50,52 @@ Rate which variant performs better across these dimensions:
 
 ---
 
-## 4. Admin Console (Internal)
+## 4. Analytics & Leaderboard
+
+### The 10-Vote Gate
+
+Your progress toward unlocking analytics is shown in the top-right progress bar. Once you complete **10 evaluations**, the **Analytics** button lights up and you gain access to the full benchmark dashboard.
+
+![Analytics Unlocked](assets/08_analytics_unlocked.png)
+
+### Benchmark Results Dashboard
+
+The analytics dashboard shows aggregated performance data across all evaluations:
+
+![Analytics Dashboard](assets/09_analytics_dashboard.png)
+
+- **Aggregate Win Rates** -- Overall win percentage for each model family (Veo, Kling, Seedance).
+- **Mode Breakup** -- How many evaluations were T2V (Text-to-Video), I2V (Image-to-Video), or R2V (Reference-to-Video).
+- **SKU Win Rates** -- Per-model win rates with latency data, filterable by Global/T2V/I2V/R2V.
+- **Dimension Analytics** -- Radar charts showing how top models score across Motion Quality, Prompt Following, Aesthetic Consistency, Audio Expressiveness, and Audio-Visual Sync.
+- **Global vs. Personal** -- Toggle between global aggregate results and your own evaluation history.
+- **Filter by Tag** -- Narrow results to specific prompt categories (e.g., People, Animation, Photorealistic).
+
+### Leaderboard
+
+The **Top Evaluators** leaderboard ranks all participants by vote count. It appears on the login screen and at the bottom of the analytics dashboard. The more you evaluate, the higher you climb.
+
+![Full Analytics with Leaderboard](assets/10_analytics_full.png)
+
+### What you unlock at 10 votes
+
+- Full access to the Benchmark Results dashboard
+- Ability to submit custom benchmarking prompts
+- "Evaluation Tier Unlocked" badge
+
+---
+
+## 5. Tips for Evaluators
+
+- **Watch each video at least twice** before voting.
+- **Use audio** when available -- it's a scoring dimension.
+- **Don't rush** -- quality evaluations are more valuable than quantity.
+- **Skip freely** if a pair is ambiguous or both outputs are equally bad/good.
+- Your vote count is tracked on the leaderboard. Complete at least 10 evaluations to unlock analytics and prompt submission.
+
+---
+
+## 6. Admin Console (Internal)
 
 The admin portal manages prompts, models, and batch generation workflows.
 
@@ -75,13 +120,3 @@ Track all generation jobs with status indicators, category tags, and success/fai
 View and toggle all registered models. Supports Veo (Vertex AI), Kling, Seedance, and other providers via FAL.
 
 ![Model Registry](assets/07_admin_models.png)
-
----
-
-## 5. Tips for Evaluators
-
-- **Watch each video at least twice** before voting.
-- **Use audio** when available -- it's a scoring dimension.
-- **Don't rush** -- quality evaluations are more valuable than quantity.
-- **Skip freely** if a pair is ambiguous or both outputs are equally bad/good.
-- Your vote count is tracked on the leaderboard. Complete at least 10 evaluations to unlock prompt submission.
