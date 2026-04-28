@@ -252,14 +252,21 @@ prompts_manager = PromptsManager()
 # ===================================================================
 # Auth
 # ===================================================================
+ADMIN_USER = os.getenv("ADMIN_USER", "admin")
+ADMIN_PASS = os.getenv("ADMIN_PASS")
+
 async def verify_admin(x_admin_user: str = Header(None), x_admin_pass: str = Header(None)):
-    if x_admin_user != "admin" or x_admin_pass != "password":
+    if not ADMIN_PASS:
+        raise HTTPException(status_code=500, detail="ADMIN_PASS not configured")
+    if x_admin_user != ADMIN_USER or x_admin_pass != ADMIN_PASS:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @app.post("/api/admin/login")
 async def admin_login(creds: dict):
-    if creds.get("username") == "admin" and creds.get("password") == "password":
+    if not ADMIN_PASS:
+        raise HTTPException(status_code=500, detail="ADMIN_PASS not configured")
+    if creds.get("username") == ADMIN_USER and creds.get("password") == ADMIN_PASS:
         return {"status": "success"}
     raise HTTPException(status_code=401, detail="Invalid credentials")
 

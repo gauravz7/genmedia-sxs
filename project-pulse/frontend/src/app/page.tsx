@@ -1,5 +1,5 @@
 'use client';
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "/proxy-api";
 import { useState, useEffect, useRef } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, Sparkles, Target, Crown,

@@ -1,20 +1,21 @@
 import type { NextConfig } from "next";
 
+const isProd = process.env.NODE_ENV === 'production';
+
 const nextConfig: NextConfig = {
-  eslint: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has ESLint errors.
-    ignoreDuringBuilds: true,
-  },
   typescript: {
-    // !! WARN !!
-    // Dangerously allow production builds to successfully complete even if
-    // your project has type errors.
-    // !! WARN !!
     ignoreBuildErrors: true,
   },
-  output: 'export',
-  trailingSlash: true,
+  ...(isProd
+    ? { output: 'export', trailingSlash: true }
+    : {
+        rewrites: async () => [
+          {
+            source: '/proxy-api/api/:path*',
+            destination: `${process.env.BACKEND_URL || 'http://localhost:8011'}/api/:path*`,
+          },
+        ],
+      }),
 };
 
 export default nextConfig;

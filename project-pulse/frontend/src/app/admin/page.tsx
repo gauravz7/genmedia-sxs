@@ -1,5 +1,5 @@
 'use client';
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "/proxy-api";
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   PlusCircle, Search, Sparkles, BookOpen, Crown, Layers, Award,
