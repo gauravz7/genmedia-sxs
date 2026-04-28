@@ -1,8 +1,0 @@
-
-{
-  "name": "Gemini Live Avatar",
-  "description": "A real-time voice chat application featuring an AI avatar powered by the Gemini Live API.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
-}
