@@ -1,4 +1,4 @@
-# Project Pulse
+# GenMedia SxS
 
 **Internal benchmarking platform for side-by-side (SxS) evaluation of generative media models.**
 
@@ -21,8 +21,8 @@ Compare Veo, Kling, Seedance and other AI video models through blind pairwise te
           │                       │                       │
   ┌───────▼───────┐   ┌──────────▼────────┐   ┌─────────▼────────┐
   │  Firestore     │   │  Cloud Storage     │   │  Model APIs       │
-  │  (jobs, votes, │   │  gs://project-pulse│   │  • Vertex AI (Veo)│
-  │   prompts)     │   │  (videos, images)  │   │  • FAL (Kling,    │
+  │  (jobs, votes, │   │  (videos, images)  │   │  • Vertex AI (Veo)│
+  │   prompts)     │   │                    │   │  • FAL (Kling,    │
   └───────────────┘   └───────────────────┘   │    Seedance)      │
                                                └──────────────────┘
 ```
@@ -30,8 +30,8 @@ Compare Veo, Kling, Seedance and other AI video models through blind pairwise te
 - **Frontend:** Next.js 16 / React 19 / Tailwind CSS — static export served by FastAPI
 - **Backend:** Python FastAPI orchestrating Vertex AI, FAL, Firestore, and GCS
 - **Database:** Google Firestore (collections: `eval_jobs`, `prompts`, `votes`)
-- **Storage:** Google Cloud Storage (`gs://project-pulse`)
-- **Deployment:** Unified Docker container on Google Cloud Run (`us-central1`)
+- **Storage:** Google Cloud Storage
+- **Deployment:** Unified Docker container on Google Cloud Run
 
 ## Features
 
@@ -54,24 +54,26 @@ Compare Veo, Kling, Seedance and other AI video models through blind pairwise te
 
 ```bash
 # 1. Clone and navigate
-git clone https://github.com/gauravz7/mediasxs.git
-cd mediasxs/project-pulse
+git clone https://github.com/gauravz7/genmedia-sxs.git
+cd genmedia-sxs/project-pulse
 
 # 2. Backend setup
 cd backend
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# 3. Create .env file
+# 3. Create backend/.env (never commit this file)
 cat > .env << 'EOF'
 GCP_PROJECT_ID=your-gcp-project
 GCS_BUCKET_NAME=your-bucket
 FAL_KEY=your-fal-api-key
 OUTPUT_GCS_BUCKET=gs://your-bucket
+ADMIN_USER=admin
+ADMIN_PASS=your-admin-password
 EOF
 
 # 4. Start backend
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8011
 
 # 5. Frontend (new terminal)
 cd ../frontend
@@ -79,15 +81,11 @@ npm ci
 npm run dev
 ```
 
+The frontend proxies API calls to the backend via Next.js rewrites (`/proxy-api/` → `localhost:8011`).
+
 - Admin console: `http://localhost:3000/admin`
 - SxS evaluation: `http://localhost:3000/`
-- API docs: `http://localhost:8000/docs`
-
-### Quick Restart
-
-```bash
-./restart_local.sh
-```
+- API docs: `http://localhost:8011/docs`
 
 ## Deployment
 
@@ -101,6 +99,13 @@ This runs `gcloud run deploy` with the multi-stage `Dockerfile` that:
 1. Builds the Next.js static export (`npm run build`)
 2. Packages it with the FastAPI backend
 3. Serves everything via uvicorn on port 8080
+
+Set secrets as Cloud Run env vars (not in code):
+```bash
+gcloud run services update genmedia-sxs \
+  --set-env-vars "FAL_KEY=...,ADMIN_PASS=..." \
+  --region us-central1
+```
 
 ## API Endpoints
 
