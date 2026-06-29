@@ -97,6 +97,20 @@ def _speakers(case: dict) -> Optional[List[dict]]:
     return None
 
 
+def _local_language(code: Optional[str]) -> Optional[str]:
+    """For a mixed/code-switched tag (e.g. hi-en, en-hi), route GENERATION to the
+    local language — the non-English component (hi). Single codes pass through.
+    The full mixed tag is still stored on the job for display/filtering."""
+    c = (code or "").strip().lower()
+    if "-" not in c:
+        return c or None
+    parts = [p for p in c.split("-") if p]
+    for p in parts:           # prefer the first non-English (local) language
+        if p != "en":
+            return p
+    return parts[0] if parts else (c or None)
+
+
 # --- generation: one engine -------------------------------------------------
 
 async def _gen_gemini(case: dict) -> dict:
@@ -105,7 +119,7 @@ async def _gen_gemini(case: dict) -> dict:
         voice=case.get("voice", "Kore"),
         style_prompt=case.get("style_prompt"),
         speakers=_speakers(case),
-        language=case.get("language"),
+        language=_local_language(case.get("language")),
         case_id=case.get("id", "case"),
     )
 
@@ -121,7 +135,7 @@ async def _gen_eleven(case: dict) -> dict:
         voice=voice,
         style_prompt=case.get("style_prompt"),
         speakers=speakers,
-        language=case.get("language"),
+        language=_local_language(case.get("language")),
         case_id=case.get("id", "case"),
     )
 
