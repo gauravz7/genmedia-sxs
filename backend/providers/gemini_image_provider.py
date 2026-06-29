@@ -47,25 +47,39 @@ load_dotenv()
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "vital-octagon-19612")
 IMAGE_LOCATION = os.getenv("IMAGE_LOCATION", "global")
 
+# Some image models are GA in the main project; preview/EAP ones (e.g.
+# flash-lite) only exist in a separate project. Route per-model.
+IMAGE_PREVIEW_PROJECT = os.getenv("IMAGE_PREVIEW_PROJECT", "cloud-llm-preview1")
+PREVIEW_MODELS = {
+    m.strip() for m in os.getenv(
+        "IMAGE_PREVIEW_MODELS", "gemini-3.1-flash-lite-image,instant-ramen"
+    ).split(",") if m.strip()
+}
+
 # Supported image models (kept identical to the matchup registry).
 GEMINI_FLASH_IMAGE = "gemini-3.1-flash-image"
 GEMINI_PRO_IMAGE = "gemini-3-pro-image"
 GEMINI_FLASH_LITE_IMAGE = "gemini-3.1-flash-lite-image"
 
-_client = None
+_clients: dict = {}
 
 
-def _get_client():
-    """Lazily build a single Vertex genai client (ADC, no API key)."""
-    global _client
-    if _client is None:
-        _client = genai.Client(
+def _project_for(model: str) -> str:
+    return IMAGE_PREVIEW_PROJECT if model in PREVIEW_MODELS else PROJECT_ID
+
+
+def _get_client(project: str):
+    """Lazily build/cache a Vertex genai client per project (ADC, no API key)."""
+    c = _clients.get(project)
+    if c is None:
+        c = genai.Client(
             vertexai=True,
-            project=PROJECT_ID,
+            project=project,
             location=IMAGE_LOCATION,
             http_options=types.HttpOptions(timeout=600000),  # ms (=10 min)
         )
-    return _client
+        _clients[project] = c
+    return c
 
 
 def _standard_result(model: str, **kwargs) -> dict:
@@ -159,7 +173,7 @@ async def generate_gemini_image(
     """
     start = time.time()
     try:
-        client = _get_client()
+        client = _get_client(_project_for(model))
 
         contents = [prompt or ""]
         if input_image_url:
