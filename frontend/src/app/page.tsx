@@ -3,7 +3,7 @@ import { BarChart3, Cpu, Clapperboard, ImageIcon, AudioLines, ShieldCheck, Arrow
 import Nav from '@/components/Nav';
 
 const CARDS = [
-  { href: '/human-eval', label: 'Video Eval', desc: 'Blind A/B voting for video models — Veo, Kling, Seedance — with dimension scoring.', icon: Clapperboard, accent: 'from-pink-500 to-purple-600', note: '' },
+  { href: '/video-sxs', label: 'Video Eval', desc: 'Blind A/B voting for video models — Veo, Kling, Seedance — with dimension scoring.', icon: Clapperboard, accent: 'from-pink-500 to-purple-600', note: '' },
   { href: '/image-sxs', label: 'Image Eval', desc: 'Gemini image models vs GPT-image (FAL). Text-to-image & image-edit, blind A/B + AI judge.', icon: ImageIcon, accent: 'from-emerald-500 to-indigo-600', note: '' },
   { href: '/tts-sxs', label: 'TTS Eval', desc: 'Gemini 3.1 Flash TTS vs ElevenLabs. Full voice controls, blind audio A/B + AI judge.', icon: AudioLines, accent: 'from-amber-500 to-pink-600', note: '' },
   { href: '/ai-evals', label: 'AI Evals', desc: 'Machine-generated auto-evaluations across every modality — video, image, and audio — in one place.', icon: Cpu, accent: 'from-emerald-500 to-indigo-600', note: '' },

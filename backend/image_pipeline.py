@@ -117,6 +117,14 @@ def _mode(case: dict) -> str:
     return "i2i" if m in ("i2i", "edit", "image-to-image") else "t2i"
 
 
+def _categories(case: dict) -> List[str]:
+    """Normalize a case's tags/categories from any of the accepted keys."""
+    raw = case.get("categories") or case.get("tags") or case.get("category") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(c).strip() for c in raw if str(c).strip()]
+
+
 def _input_image(case: dict) -> Optional[str]:
     # Accept a single `input_image`/`reference_image`, or the first of an
     # `input_images` array (the external eval-sheet schema).
@@ -179,6 +187,7 @@ def create_image_job(case: dict, batch_id: Optional[str] = None) -> str:
         "customer": case.get("customer", ""),
         "prompt_id": case_id,
         "prompt": case.get("prompt", ""),
+        "categories": _categories(case),
         "mode": _mode(case),
         "matchup": matchup["id"],
         "matchup_label": matchup["label"],

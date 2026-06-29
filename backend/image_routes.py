@@ -287,10 +287,19 @@ async def image_get_aieval(job_id: str):
 # Blind voting pair
 # ===================================================================
 @router.get("/api/image/pair")
-async def image_pair():
-    """Return a random blind A/B image pair (both sides succeeded) for voting."""
+async def image_pair(
+    tag: Optional[str] = Query(None),
+    prompt_id: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+):
+    """Return a random blind A/B image pair (both sides succeeded) for voting.
+    Optional filters: tag (category), prompt_id (substring), search (prompt text)."""
     db = _db()
     docs = list(db.collection(IMAGE_COLLECTION).where("source", "==", "sxs_auto").stream())
+
+    tag_l = (tag or "").strip().lower()
+    pid_l = (prompt_id or "").strip().lower()
+    q_l = (search or "").strip().lower()
 
     candidates = []
     for doc in docs:
@@ -298,11 +307,18 @@ async def image_pair():
         d["id"] = doc.id
         results = d.get("results") or {}
         a, b = results.get("A"), results.get("B")
-        if (
+        if not (
             isinstance(a, dict) and a.get("status") == "success" and _result_url(a)
             and isinstance(b, dict) and b.get("status") == "success" and _result_url(b)
         ):
-            candidates.append(d)
+            continue
+        if tag_l and tag_l not in [str(c).lower() for c in (d.get("categories") or [])]:
+            continue
+        if pid_l and pid_l not in str(d.get("prompt_id", "")).lower():
+            continue
+        if q_l and q_l not in str(d.get("prompt", "")).lower():
+            continue
+        candidates.append(d)
 
     if not candidates:
         return {"status": "error", "message": "No image pairs ready for voting"}
@@ -312,6 +328,8 @@ async def image_pair():
     return {
         "job_id": d["id"],
         "prompt": d.get("prompt"),
+        "prompt_id": d.get("prompt_id"),
+        "categories": d.get("categories") or [],
         "customer": d.get("customer"),
         "mode": d.get("mode"),
         "input_image": _proxy(d.get("input_image")) if d.get("input_image") else None,
@@ -319,6 +337,18 @@ async def image_pair():
         "variant_a": {"side": "A", "url": _proxy(_result_url(results["A"]))},
         "variant_b": {"side": "B", "url": _proxy(_result_url(results["B"]))},
     }
+
+
+@router.get("/api/image/tags")
+async def image_tags():
+    """Distinct categories across image jobs, for the arena tag filter."""
+    db = _db()
+    tags = set()
+    for doc in db.collection(IMAGE_COLLECTION).where("source", "==", "sxs_auto").stream():
+        for t in (doc.to_dict().get("categories") or []):
+            if t:
+                tags.add(str(t))
+    return {"status": "success", "tags": sorted(tags)}
 
 
 class ImageVoteRequest(BaseModel):

@@ -249,10 +249,19 @@ async def tts_get_aieval(job_id: str):
 # Blind voting pair
 # ===================================================================
 @router.get("/pair")
-async def tts_pair():
-    """Return a random blind A/B TTS pair (both sides succeeded) for voting."""
+async def tts_pair(
+    tag: Optional[str] = Query(None),
+    prompt_id: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+):
+    """Return a random blind A/B TTS pair (both sides succeeded) for voting.
+    Optional filters: tag (category), prompt_id (substring), search (text)."""
     db = _db()
     docs = list(db.collection(TTS_COLLECTION).where("source", "==", "sxs_auto").stream())
+
+    tag_l = (tag or "").strip().lower()
+    pid_l = (prompt_id or "").strip().lower()
+    q_l = (search or "").strip().lower()
 
     candidates = []
     for doc in docs:
@@ -260,11 +269,18 @@ async def tts_pair():
         d["id"] = doc.id
         results = d.get("results") or {}
         a, b = results.get("A"), results.get("B")
-        if (
+        if not (
             isinstance(a, dict) and a.get("status") == "success" and _result_url(a)
             and isinstance(b, dict) and b.get("status") == "success" and _result_url(b)
         ):
-            candidates.append(d)
+            continue
+        if tag_l and tag_l not in [str(c).lower() for c in (d.get("categories") or [])]:
+            continue
+        if pid_l and pid_l not in str(d.get("prompt_id", "")).lower():
+            continue
+        if q_l and q_l not in str(d.get("text", "") or d.get("prompt", "")).lower():
+            continue
+        candidates.append(d)
 
     if not candidates:
         return {"status": "error", "message": "No TTS pairs ready for voting"}
@@ -274,6 +290,8 @@ async def tts_pair():
     return {
         "job_id": d["id"],
         "text": d.get("text") or d.get("prompt"),
+        "prompt_id": d.get("prompt_id"),
+        "categories": d.get("categories") or [],
         "style_prompt": d.get("style_prompt"),
         "customer": d.get("customer"),
         "mode": d.get("mode"),
@@ -282,6 +300,18 @@ async def tts_pair():
         "variant_a": {"side": "A", "url": _proxy(_result_url(results["A"]))},
         "variant_b": {"side": "B", "url": _proxy(_result_url(results["B"]))},
     }
+
+
+@router.get("/tags")
+async def tts_tags():
+    """Distinct categories across TTS jobs, for the arena tag filter."""
+    db = _db()
+    tags = set()
+    for doc in db.collection(TTS_COLLECTION).where("source", "==", "sxs_auto").stream():
+        for t in (doc.to_dict().get("categories") or []):
+            if t:
+                tags.add(str(t))
+    return {"status": "success", "tags": sorted(tags)}
 
 
 class TtsVoteRequest(BaseModel):

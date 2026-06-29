@@ -5,10 +5,12 @@ import {
   Target, Database, ArrowRight, CheckCircle2,
   AlertCircle, Loader2, Zap, Info, ShieldCheck, Image as ImageIcon, Link as LinkIcon,
   PlayCircle, StopCircle, UploadCloud, X, Tag, Filter, Eye, Clock, Video,
-  ChevronDown, ChevronUp, RefreshCw, Trash2, Download, Share2
+  ChevronDown, ChevronUp, RefreshCw, Trash2, Download, Share2, AudioLines
 } from 'lucide-react';
 import { API_BASE_URL, formatUrl, adminFetch, getAdminToken, setAdminToken, clearAdminToken, maskPid } from '@/lib/api';
 import Nav from '@/components/Nav';
+import ImageGenAdmin from '@/components/ImageGenAdmin';
+import TtsGenAdmin from '@/components/TtsGenAdmin';
 
 const PRESET_CATEGORIES = ["Studio Shots", "Beauty", "Animation", "Model Bug Backlog"];
 
@@ -555,6 +557,8 @@ export default function AdminConsole() {
           <div className="flex items-center space-x-2 bg-white/[0.03] border border-white/10 rounded-full p-1 shadow-inner">
             {[
               { id: 'generate', label: 'Generate (JSON)', icon: <UploadCloud className="w-4 h-4" /> },
+              { id: 'image-gen', label: 'Image Generation', icon: <ImageIcon className="w-4 h-4" /> },
+              { id: 'tts-gen', label: 'TTS Generation', icon: <AudioLines className="w-4 h-4" /> },
               { id: 'generations', label: 'Generations', icon: <Eye className="w-4 h-4" /> },
               { id: 'models', label: 'Model Registry' },
               { id: 'guidelines', label: 'Guidelines', icon: <BookOpen className="w-4 h-4" /> },
@@ -810,6 +814,38 @@ export default function AdminConsole() {
                 </div>
               </section>
             )}
+          </div>
+        )}
+
+        {/* ============ IMAGE GENERATION ============ */}
+        {activeTab === 'image-gen' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 space-y-8">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-bold uppercase tracking-widest mb-4">
+                <ImageIcon className="w-3.5 h-3.5" /> Image SxS Pipeline
+              </div>
+              <h2 className="text-4xl md:text-5xl font-light text-white mb-2 tracking-tight leading-tight">
+                Image <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">Generation</span>
+              </h2>
+              <p className="text-gray-500 text-sm">Compose &amp; run Gemini-Image vs GPT-image matchups. Upload a cases JSON plus reference images, launch, and monitor the job table.</p>
+            </div>
+            <ImageGenAdmin />
+          </div>
+        )}
+
+        {/* ============ TTS GENERATION ============ */}
+        {activeTab === 'tts-gen' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 space-y-8">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-bold uppercase tracking-widest mb-4">
+                <AudioLines className="w-3.5 h-3.5" /> TTS SxS Pipeline
+              </div>
+              <h2 className="text-4xl md:text-5xl font-light text-white mb-2 tracking-tight leading-tight">
+                TTS <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">Generation</span>
+              </h2>
+              <p className="text-gray-500 text-sm">Compose voice-over cases (voice / style / language / multi-speaker) or upload a cases JSON, render on Gemini TTS vs ElevenLabs, and monitor the job table.</p>
+            </div>
+            <TtsGenAdmin />
           </div>
         )}
 

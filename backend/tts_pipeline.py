@@ -50,6 +50,13 @@ def _mode(case: dict) -> str:
     return str(case.get("mode") or "single").strip().lower()
 
 
+def _categories(case: dict) -> List[str]:
+    raw = case.get("categories") or case.get("tags") or case.get("category") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(c).strip() for c in raw if str(c).strip()]
+
+
 def _detect_language(text: str) -> str:
     """Auto-tag the BCP-47 language of a transcript when none was provided.
     Uses Gemini flash; returns "" on any failure (engines still auto-detect)."""
@@ -147,6 +154,7 @@ def create_tts_job(case: dict, batch_id: Optional[str] = None) -> str:
         "prompt_id": case_id,
         "text": case.get("text", ""),
         "prompt": case.get("text", ""),  # alias so generic UIs can read .prompt
+        "categories": _categories(case),
         "style_prompt": case.get("style_prompt", ""),
         "mode": _mode(case),
         "voice": case.get("voice", ""),

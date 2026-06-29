@@ -6,6 +6,8 @@ import {
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
 import { API_BASE_URL } from '@/lib/api';
 import Nav from '@/components/Nav';
+import ImageResults from '@/components/ImageResults';
+import TtsResults from '@/components/TtsResults';
 
 const DIMENSIONS = [
   { id: 'prompt_adherence', label: 'Prompt Adherence', color: 'indigo' },
@@ -390,6 +392,22 @@ export default function Analytics() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Image SxS Results */}
+        <div className="pt-10 border-t border-white/5 mt-8">
+          <h3 className="text-xl font-light text-gray-300 mb-6 flex items-center gap-3">
+            <ImageIcon className="w-5 h-5 text-indigo-400" /> Image SxS Results
+          </h3>
+          <ImageResults />
+        </div>
+
+        {/* TTS Results */}
+        <div className="pt-10 border-t border-white/5 mt-8">
+          <h3 className="text-xl font-light text-gray-300 mb-6 flex items-center gap-3">
+            <AudioLines className="w-5 h-5 text-indigo-400" /> TTS Results
+          </h3>
+          <TtsResults />
         </div>
       </div>
     </div>
