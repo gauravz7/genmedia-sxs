@@ -70,8 +70,8 @@ export default function VideoSxSArena() {
   useEffect(() => {
     setMounted(true);
     const saved = typeof window !== "undefined" ? (localStorage.getItem("project_pulse_ldap") || localStorage.getItem("pp_ldap")) : "";
-    // Always show the "enter arena" gate; prefill the last-used ldap for one-click entry.
-    if (saved) setLdapInput(saved);
+    // Auto-enter if an ldap was already provided (don't re-ask across arenas/sessions).
+    if (saved) { setLdap(saved); setLdapInput(saved); }
   }, []);
 
   useEffect(() => {
@@ -211,10 +211,11 @@ export default function VideoSxSArena() {
   // ---------- LDAP GATE ----------
   if (!ldap) {
     return (
-      <div className="min-h-screen bg-[#020408] flex items-center justify-center p-6 relative overflow-hidden">
+      <div className="min-h-screen bg-[#020408] relative overflow-hidden">
         <Nav active="human-eval" />
         <div className="absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-[#020408]"></div>
-        <div className="relative z-10 w-full max-w-md bg-[#0b0e14]/80 backdrop-blur-2xl border border-white/10 rounded-[40px] shadow-2xl p-10 lg:p-16 animate-in zoom-in-95 duration-700">
+        <div className="relative z-10 flex items-center justify-center p-6 min-h-[calc(100vh-80px)]">
+        <div className="w-full max-w-md bg-[#0b0e14]/80 backdrop-blur-2xl border border-white/10 rounded-[40px] shadow-2xl p-10 lg:p-16 animate-in zoom-in-95 duration-700">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center mb-8 mx-auto shadow-[0_0_30px_rgba(99,102,241,0.4)]">
             <Zap className="w-8 h-8 text-white" />
           </div>
@@ -225,6 +226,7 @@ export default function VideoSxSArena() {
               className="w-full bg-[#020408] border border-white/10 rounded-2xl px-6 py-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-6 font-mono text-center" />
             <button type="submit" disabled={!ldapInput.trim()} className="w-full bg-white text-[#020408] font-black uppercase tracking-widest py-4 rounded-2xl hover:bg-gray-200 transition-colors disabled:opacity-50">Enter Evaluation</button>
           </form>
+        </div>
         </div>
       </div>
     );

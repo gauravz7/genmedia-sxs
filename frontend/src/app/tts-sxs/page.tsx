@@ -34,8 +34,8 @@ export default function TtsSxSArena() {
   useEffect(() => {
     setMounted(true);
     const saved = typeof window !== "undefined" ? (localStorage.getItem("project_pulse_ldap") || localStorage.getItem("pp_ldap")) : "";
-    // Always show the "enter arena" gate; prefill the last-used ldap for one-click entry.
-    if (saved) setLdapInput(saved);
+    // Auto-enter if an ldap was already provided (don't re-ask across arenas/sessions).
+    if (saved) { setLdap(saved); setLdapInput(saved); }
   }, []);
 
   const enterArena = (e: React.FormEvent) => {

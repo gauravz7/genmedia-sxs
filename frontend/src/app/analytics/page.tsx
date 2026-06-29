@@ -165,9 +165,11 @@ export default function Analytics() {
 
   if (isLoading || !stats) {
     return (
-      <div className="min-h-screen bg-[#020408] text-white p-12 flex items-center justify-center">
+      <div className="min-h-screen bg-[#020408] text-white">
         <Nav active="analytics" />
-        <Loader2 className="w-12 h-12 animate-spin text-indigo-500" />
+        <div className="flex items-center justify-center py-40">
+          <Loader2 className="w-12 h-12 animate-spin text-indigo-500" />
+        </div>
       </div>
     );
   }
