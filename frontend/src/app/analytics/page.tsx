@@ -27,7 +27,6 @@ export default function Analytics() {
   const [tagSearch, setTagSearch] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [globalLeaderboard, setGlobalLeaderboard] = useState<any[]>([]);
-  const [allLeaderboard, setAllLeaderboard] = useState<any[]>([]);
   const [modTab, setModTab] = useState<"video" | "image" | "tts">("video");
   // 10-vote access gate (counts votes across video + image + tts).
   const [gate, setGate] = useState<{ checked: boolean; unlocked: boolean; count: number; required: number }>({ checked: false, unlocked: false, count: 0, required: 10 });
@@ -73,10 +72,6 @@ export default function Analytics() {
     fetch(`${API_BASE_URL}/api/sxs/leaderboard/users`)
       .then(res => res.json())
       .then(data => { if (data?.status === "success" && data.leaderboard) setGlobalLeaderboard(data.leaderboard); })
-      .catch(() => {});
-    fetch(`${API_BASE_URL}/api/votes/leaderboard`)
-      .then(res => res.json())
-      .then(data => { if (data?.leaderboard) setAllLeaderboard(data.leaderboard); })
       .catch(() => {});
     try {
       const savedHistory = localStorage.getItem('project_pulse_history');
@@ -298,31 +293,6 @@ export default function Analytics() {
           })}
         </div>
 
-        {/* Top Evaluators — across ALL modalities (always visible) */}
-        <div>
-          <h3 className="text-xl font-light text-gray-500 mb-6 border-b border-white/5 pb-4 flex items-center gap-3">
-            <Crown className="w-5 h-5 text-yellow-400" /> Top Evaluators
-            <span className="text-[10px] text-gray-600 uppercase tracking-widest font-black">all modalities</span>
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {(allLeaderboard.length ? allLeaderboard : globalLeaderboard).slice(0, 10).map((user: any, idx: number) => (
-              <div key={user.ldap} className="flex items-center justify-between p-5 bg-[#0b0e14] border border-white/5 rounded-2xl">
-                <div className="flex items-center gap-4">
-                  <span className={`font-black text-xl ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : 'text-gray-600'}`}>#{idx + 1}</span>
-                  <span className="font-mono text-indigo-300">{user.ldap}</span>
-                </div>
-                <div className="flex items-center gap-2 bg-indigo-500/10 px-3 py-1.5 rounded-xl">
-                  <span className="font-black text-white">{user.count}</span>
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest">votes</span>
-                </div>
-              </div>
-            ))}
-            {allLeaderboard.length === 0 && globalLeaderboard.length === 0 && (
-              <div className="text-gray-600 text-sm italic">No votes yet.</div>
-            )}
-          </div>
-        </div>
-
         {modTab === "video" && (
         <>
         <div className={`grid gap-6 mx-auto ${models.length <= 2 ? 'grid-cols-1 sm:grid-cols-2 max-w-2xl' : models.length === 3 ? 'grid-cols-1 sm:grid-cols-3 max-w-4xl' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 max-w-5xl'}`}>
@@ -420,6 +390,31 @@ export default function Analytics() {
               </div>
             ))}
             {history.length === 0 && <div className="text-gray-600 text-sm italic">No recent evaluations on this device.</div>}
+          </div>
+        </div>
+
+        {/* Top Evaluators — video only */}
+        <div className="pt-10">
+          <h3 className="text-xl font-light text-gray-500 mb-6 border-b border-white/5 pb-4 flex items-center gap-3">
+            <Crown className="w-5 h-5 text-yellow-400" /> Top Evaluators
+            <span className="text-[10px] text-gray-600 uppercase tracking-widest font-black">video</span>
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {globalLeaderboard.slice(0, 10).map((user: any, idx: number) => (
+              <div key={user.ldap} className="flex items-center justify-between p-5 bg-[#0b0e14] border border-white/5 rounded-2xl">
+                <div className="flex items-center gap-4">
+                  <span className={`font-black text-xl ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : 'text-gray-600'}`}>#{idx + 1}</span>
+                  <span className="font-mono text-indigo-300">{user.ldap}</span>
+                </div>
+                <div className="flex items-center gap-2 bg-indigo-500/10 px-3 py-1.5 rounded-xl">
+                  <span className="font-black text-white">{user.count}</span>
+                  <span className="text-[10px] text-gray-500 uppercase tracking-widest">votes</span>
+                </div>
+              </div>
+            ))}
+            {globalLeaderboard.length === 0 && (
+              <div className="text-gray-600 text-sm italic">No votes yet.</div>
+            )}
           </div>
         </div>
         </>
