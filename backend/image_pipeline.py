@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 
 from providers.gemini_image_provider import generate_gemini_image
 from providers.gpt_image_provider import generate_gpt_image, GPT_IMAGE_MODEL
+from providers.mai_image_provider import generate_mai_image, MAI_IMAGE_MODEL
 
 # Isolated collections — image SxS lives entirely apart from the video flow.
 IMAGE_COLLECTION = os.getenv("IMAGE_COLLECTION", "image_jobs")
@@ -54,6 +55,10 @@ def _gpt_side(quality: str) -> dict:
         "model": GPT_IMAGE_MODEL,
         "quality": quality,
     }
+
+
+def _mai_side() -> dict:
+    return {"engine": MAI_IMAGE_MODEL, "provider": "mai", "model": MAI_IMAGE_MODEL, "quality": None}
 
 
 MATCHUPS: Dict[str, dict] = {
@@ -79,6 +84,26 @@ MATCHUPS: Dict[str, dict] = {
 # Backward-compat: the old "instant-ramen" matchup id now routes to
 # gemini-3.1-flash-lite-image (instant-ramen 404'd / was not allowlisted).
 MATCHUPS["instant-ramen_vs_gpt2-low"] = MATCHUPS["gemini-3.1-flash-lite-image_vs_gpt2-low"]
+
+# --- MAI (Microsoft MAI-Image-2.5) matchups ---
+MATCHUPS["mai-image-2.5_vs_gpt-image-2-high"] = {
+    "id": "mai-image-2.5_vs_gpt-image-2-high",
+    "label": "MAI-Image-2.5 vs GPT-image-2 (high)",
+    "left": _mai_side(),
+    "right": _gpt_side("high"),
+}
+MATCHUPS["gemini-3-pro-image_vs_mai-image-2.5"] = {
+    "id": "gemini-3-pro-image_vs_mai-image-2.5",
+    "label": "Gemini 3 Pro Image vs MAI-Image-2.5",
+    "left": _gemini_side("gemini-3-pro-image"),
+    "right": _mai_side(),
+}
+MATCHUPS["mai-image-2.5_vs_gemini-3.1-flash-image"] = {
+    "id": "mai-image-2.5_vs_gemini-3.1-flash-image",
+    "label": "MAI-Image-2.5 vs Gemini 3.1 Flash Image",
+    "left": _mai_side(),
+    "right": _gemini_side("gemini-3.1-flash-image"),
+}
 
 DEFAULT_MATCHUP = "gemini-3.1-flash-image_vs_gpt2-medium"
 
@@ -160,6 +185,11 @@ async def _gen_side(side: dict, case: dict) -> dict:
     aspect_ratio = _aspect_ratio(case)
     resolution = _resolution(case)
 
+    if side["provider"] == "mai":
+        return await generate_mai_image(
+            prompt=prompt, input_image_url=input_image, case_id=case_id,
+            aspect_ratio=aspect_ratio, resolution=resolution,
+        )
     if side["provider"] == "gemini":
         return await generate_gemini_image(
             model=side["model"], prompt=prompt,

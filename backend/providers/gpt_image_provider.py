@@ -41,13 +41,13 @@ if not os.getenv("FAL_KEY"):
     print("WARNING: FAL_KEY not found in environment (gpt_image_provider).")
 
 # --- FAL endpoint slugs + quality tiers (isolated config block) -------------
-GPT_IMAGE_T2I_SLUG = "fal-ai/gpt-image-1/text-to-image"
-GPT_IMAGE_I2I_SLUG = "fal-ai/gpt-image-1/edit-image"
+GPT_IMAGE_T2I_SLUG = os.getenv("GPT_IMAGE_T2I_SLUG", "openai/gpt-image-2")
+GPT_IMAGE_I2I_SLUG = os.getenv("GPT_IMAGE_I2I_SLUG", "openai/gpt-image-2/edit")
 
 VALID_QUALITY = {"auto", "low", "medium", "high"}
 
 # Public-facing model identity (kept stable for the leaderboard / side_map).
-GPT_IMAGE_MODEL = "gpt-image-1"
+GPT_IMAGE_MODEL = os.getenv("GPT_IMAGE_MODEL", "gpt-image-2")
 
 
 def _standard_result(model: str, **kwargs) -> dict:
@@ -68,22 +68,24 @@ def _norm_quality(quality: Optional[str]) -> str:
     return q if q in VALID_QUALITY else "medium"
 
 
-# gpt-image-1 supports three fixed sizes; map an aspect ratio to orientation.
-# (The model has no 2K/4K tier, so `resolution` only nudges nothing here — the
-# orientation is what matters.)
-_PORTRAIT = {"9:16", "2:3", "3:4", "4:5", "portrait"}
-_LANDSCAPE = {"16:9", "3:2", "4:3", "5:4", "landscape"}
+# gpt-image-2 image_size: enum preset names (or {width,height} dict / 'auto').
+# Map our aspect ratios to the closest gpt-image-2 preset.
+_GPT2_SIZE = {
+    "1:1": "square_hd", "square": "square_hd",
+    "16:9": "landscape_16_9", "3:2": "landscape_16_9",
+    "4:3": "landscape_4_3", "5:4": "landscape_4_3", "landscape": "landscape_4_3",
+    "9:16": "portrait_16_9", "2:3": "portrait_16_9",
+    "3:4": "portrait_4_3", "4:5": "portrait_4_3", "portrait": "portrait_4_3",
+}
+_GPT2_VALID_SIZES = {"square_hd", "square", "portrait_4_3", "portrait_16_9",
+                     "landscape_4_3", "landscape_16_9", "auto"}
 
 
 def _gpt_image_size(aspect_ratio: Optional[str], fallback: str = "auto") -> str:
     ar = (aspect_ratio or "").strip().lower()
-    if ar in _PORTRAIT:
-        return "1024x1536"
-    if ar in _LANDSCAPE:
-        return "1536x1024"
-    if ar in ("1:1", "square"):
-        return "1024x1024"
-    return fallback
+    if ar in _GPT2_SIZE:
+        return _GPT2_SIZE[ar]
+    return fallback if fallback in _GPT2_VALID_SIZES else "auto"
 
 
 def _extract_image_url(result) -> Optional[str]:
