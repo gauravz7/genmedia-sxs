@@ -609,12 +609,21 @@ async def sxs_report_csv(batch: Optional[str] = Query(None)):
 
 
 @app.get("/api/sxs/pair")
-async def sxs_pair():
+async def sxs_pair(
+    tag: Optional[str] = Query(None),
+    prompt_id: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+):
     """Return a random Seedance-vs-Omni pair from the isolated SxS test DB for
-    human voting. AI eval is fetched separately (only after a vote is cast)."""
+    human voting. Optional filters: tag (category), prompt_id, search (prompt
+    text). AI eval is fetched separately (only after a vote is cast)."""
     from google.cloud import firestore as _fs
     db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
     docs = list(db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream())
+
+    tag_l = (tag or "").strip().lower()
+    pid_l = (prompt_id or "").strip().lower()
+    q_l = (search or "").strip().lower()
 
     def _u(res):
         u = res.get("url") or (res.get("result") or {}).get("url")
@@ -631,8 +640,15 @@ async def sxs_pair():
             if isinstance(r, dict) and r.get("status") == "success"
             and (r.get("url") or (r.get("result") or {}).get("url"))
         }
-        if len(succ) >= 2:
-            candidates.append((d, succ))
+        if len(succ) < 2:
+            continue
+        if tag_l and tag_l not in [str(c).lower() for c in (d.get("categories") or [])]:
+            continue
+        if pid_l and pid_l not in str(d.get("prompt_id", "")).lower():
+            continue
+        if q_l and q_l not in str(d.get("prompt", "")).lower():
+            continue
+        candidates.append((d, succ))
 
     if not candidates:
         return {"status": "error", "message": "No SxS pairs ready for voting"}
@@ -2048,6 +2064,7 @@ async def sxs_stats(ldap: Optional[str] = Query(None)):
             mode = _mode_of(job)
             modes[mode] += 1
             wm, lm = vote.get("winner_model"), vote.get("loser_model")
+            is_tie = (vote.get("winner_side") or "").strip().lower() == "tie"
             for mid in (wm, lm):
                 if mid and mid not in skus:
                     skus[mid] = {
@@ -2056,16 +2073,28 @@ async def sxs_stats(ldap: Optional[str] = Query(None)):
                         "I2V": {"wins": 0, "total": 0, "scores": []},
                         "R2V": {"wins": 0, "total": 0, "scores": []},
                     }
-            if wm:
-                skus[wm]["global"]["wins"] += 1
-                skus[wm]["global"]["total"] += 1
-                skus[wm][mode]["wins"] += 1
-                skus[wm][mode]["total"] += 1
-                if vote.get("scores"):
-                    skus[wm][mode]["scores"].append(vote["scores"])
-            if lm:
-                skus[lm]["global"]["total"] += 1
-                skus[lm][mode]["total"] += 1
+            if is_tie:
+                # Tie: both models are credited a win (each gets a vote).
+                for mid in (wm, lm):
+                    if not mid:
+                        continue
+                    skus[mid]["global"]["wins"] += 1
+                    skus[mid]["global"]["total"] += 1
+                    skus[mid][mode]["wins"] += 1
+                    skus[mid][mode]["total"] += 1
+                    if vote.get("scores"):
+                        skus[mid][mode]["scores"].append(vote["scores"])
+            else:
+                if wm:
+                    skus[wm]["global"]["wins"] += 1
+                    skus[wm]["global"]["total"] += 1
+                    skus[wm][mode]["wins"] += 1
+                    skus[wm][mode]["total"] += 1
+                    if vote.get("scores"):
+                        skus[wm][mode]["scores"].append(vote["scores"])
+                if lm:
+                    skus[lm]["global"]["total"] += 1
+                    skus[lm][mode]["total"] += 1
 
         def avg_scores(score_list):
             if not score_list:

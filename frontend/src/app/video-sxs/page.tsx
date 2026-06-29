@@ -261,7 +261,7 @@ export default function HumanEval() {
       if (!voteRes.ok) throw new Error(`Server responded ${voteRes.status}`);
       await voteRes.json().catch(() => ({}));
       // Reveal the picked model name, then auto-advance to the next pair in ~1s.
-      setVoteAck(`✓ Vote registered — you picked ${prettyModel(winnerModel)}`);
+      setVoteAck(winner === 'tie' ? "✓ Vote registered — Tie (both models credited)" : `✓ Vote registered — you picked ${prettyModel(winnerModel)}`);
       setHistory([{ prompt: currentEval.prompt, winner, scores, justification, modelA: currentEval.variant_a.model_id, modelB: currentEval.variant_b.model_id }, ...history]);
       setVotesCount(prev => prev + 1);
       setTimeout(() => { handleNextPair(); }, 1000);

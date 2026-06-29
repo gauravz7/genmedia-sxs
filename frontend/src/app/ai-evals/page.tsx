@@ -171,11 +171,11 @@ function extractJobEvals(job: any): { engines: EngineEval[]; winner: string | nu
   return { engines, winner };
 }
 
-// Tags for filtering: customer + categories/tags + language (modality has its own tabs).
+// Tags for filtering: categories/tags + language only (no customer names —
+// those are sensitive and must not surface as tags). Modality has its own tabs.
 function jobTags(job: any): string[] {
   const t = new Set<string>();
   const add = (v: any) => { if (v != null && String(v).trim()) t.add(String(v).trim()); };
-  add(job.customer);
   const cats = job.categories || job.tags || [];
   (Array.isArray(cats) ? cats : [cats]).forEach(add);
   add(job.language);
@@ -259,7 +259,6 @@ export default function AiEvals() {
       const q = filter.toLowerCase();
       list = list.filter(
         (j) =>
-          (j.customer || "").toLowerCase().includes(q) ||
           (j.prompt || j.text || "").toLowerCase().includes(q) ||
           (j.prompt_id || j.id || "").toLowerCase().includes(q)
       );
@@ -347,7 +346,7 @@ export default function AiEvals() {
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter by customer or prompt..."
+            placeholder="Filter by prompt..."
             className="w-full md:max-w-md bg-[#0b0e14] border border-white/10 rounded-2xl px-5 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
           />
         </div>
@@ -667,11 +666,6 @@ function RatingCard({ job }: { job: RatingJob }) {
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 mb-2">
-            {job.customer && (
-              <span className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-black uppercase tracking-widest">
-                {job.customer}
-              </span>
-            )}
             {job.modality && (
               <span className="px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[10px] font-black uppercase tracking-widest">
                 {job.modality}
