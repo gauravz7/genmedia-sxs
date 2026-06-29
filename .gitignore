@@ -75,3 +75,9 @@ backups/
 # local secrets / scratch
 .admin_pass.local
 *.local
+service_keys.json
+claude_sa.json
+keys.json
+*_sa.json
+*-sa.json
+*.credentials.json
