@@ -19,7 +19,7 @@ Matchup registry (default 3 fixed pairs; case picks via case["matchup"],
 default = matchup #1):
     1: gemini-3.1-flash-image vs gpt-image-1 (medium)
     2: gemini-3-pro-image     vs gpt-image-1 (high)
-    3: instant-ramen          vs gpt-image-1 (low)
+    3: gemini-3.1-flash-lite-image vs gpt-image-1 (low)
 
 No module-level network calls — clients are constructed lazily.
 """
@@ -69,13 +69,16 @@ MATCHUPS: Dict[str, dict] = {
         "left": _gemini_side("gemini-3-pro-image"),
         "right": _gpt_side("high"),
     },
-    "instant-ramen_vs_gpt2-low": {
-        "id": "instant-ramen_vs_gpt2-low",
-        "label": "Instant Ramen vs GPT-image (low)",
-        "left": _gemini_side("instant-ramen"),
+    "gemini-3.1-flash-lite-image_vs_gpt2-low": {
+        "id": "gemini-3.1-flash-lite-image_vs_gpt2-low",
+        "label": "Gemini 3.1 Flash Lite Image vs GPT-image (low)",
+        "left": _gemini_side("gemini-3.1-flash-lite-image"),
         "right": _gpt_side("low"),
     },
 }
+# Backward-compat: the old "instant-ramen" matchup id now routes to
+# gemini-3.1-flash-lite-image (instant-ramen 404'd / was not allowlisted).
+MATCHUPS["instant-ramen_vs_gpt2-low"] = MATCHUPS["gemini-3.1-flash-lite-image_vs_gpt2-low"]
 
 DEFAULT_MATCHUP = "gemini-3.1-flash-image_vs_gpt2-medium"
 

@@ -50,7 +50,7 @@ IMAGE_LOCATION = os.getenv("IMAGE_LOCATION", "global")
 # Supported image models (kept identical to the matchup registry).
 GEMINI_FLASH_IMAGE = "gemini-3.1-flash-image"
 GEMINI_PRO_IMAGE = "gemini-3-pro-image"
-INSTANT_RAMEN = "instant-ramen"
+GEMINI_FLASH_LITE_IMAGE = "gemini-3.1-flash-lite-image"
 
 _client = None
 
