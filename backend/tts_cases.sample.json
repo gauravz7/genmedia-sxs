@@ -1,0 +1,28 @@
+{
+  "cases": [
+    {
+      "id": "t1",
+      "text": "[cheerful] Have a wonderful day! The sun is shining and everything feels possible.",
+      "voice": "Kore",
+      "style_prompt": "Warm, upbeat morning-radio host. Bright and welcoming.",
+      "language": "en"
+    },
+    {
+      "id": "t2",
+      "text": "[whispers] Don't make a sound. [pause] They might still be listening.",
+      "voice": "Charon",
+      "style_prompt": "Tense thriller narrator, hushed and suspenseful.",
+      "language": "en"
+    },
+    {
+      "id": "t3",
+      "mode": "multi",
+      "text": "Joe: Hey Jane, how's the launch going?\nJane: [excited] Honestly? Better than we ever imagined!",
+      "speakers": [
+        { "speaker": "Joe", "voice": "Kore" },
+        { "speaker": "Jane", "voice": "Puck" }
+      ],
+      "style_prompt": "Casual, friendly chat between two startup co-founders."
+    }
+  ]
+}

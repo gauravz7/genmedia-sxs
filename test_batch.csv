@@ -1,0 +1,5 @@
+Prompt ID,Mode,Text Prompt,Start Image,Last Image,Ref Image 1,Ref Image 2,Ref Image 3,Model,Success
+BATCH_001,t2v,"A glowing neon jellyfish swimming through a cyber city",,,,,,,kling-o3-standard-t2v,False
+BATCH_001,t2v,"A glowing neon jellyfish swimming through a cyber city",,,,,,,grok-imagine-t2v,False
+BATCH_002,i2v,"A red sports car drifting on a snowy mountain",https://project-pulse.storage.googleapis.com/uploads/1772380748_image2v.png,,,,,,kling-o3-pro-i2v,False
+BATCH_002,i2v,"A red sports car drifting on a snowy mountain",https://project-pulse.storage.googleapis.com/uploads/1772380748_image2v.png,,,,,,veo,False
