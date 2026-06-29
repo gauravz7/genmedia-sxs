@@ -1,5 +1,4 @@
 'use client';
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "/proxy-api";
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   PlusCircle, Search, Sparkles, BookOpen, Crown, Layers, Award,
@@ -8,6 +7,8 @@ import {
   PlayCircle, StopCircle, UploadCloud, X, Tag, Filter, Eye, Clock, Video,
   ChevronDown, ChevronUp, RefreshCw, Trash2, Download, Share2
 } from 'lucide-react';
+import { API_BASE_URL, formatUrl, adminFetch, getAdminToken, setAdminToken, clearAdminToken } from '@/lib/api';
+import Nav from '@/components/Nav';
 
 const PRESET_CATEGORIES = ["Studio Shots", "Beauty", "Animation", "Model Bug Backlog"];
 
@@ -36,41 +37,42 @@ interface Model {
   is_active: boolean;
 }
 
+interface GenCase {
+  id?: string;
+  prompt_id?: string;
+  customer?: string;
+  modality?: string;
+  mode?: string;
+  aspect_ratio?: string;
+  ratio?: string;
+  duration?: number | string;
+  reference_images?: string[];
+  ref_images?: string[];
+  reference_videos?: string[];
+  ref_videos?: string[];
+  [key: string]: any;
+}
+
 export default function AdminConsole() {
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [models, setModels] = useState<Model[]>([]);
 
-  // Prompt creation
-  const [newPromptText, setNewPromptText] = useState("");
-  const [newPromptStartImage, setNewPromptStartImage] = useState("");
-  const [newPromptEndImage, setNewPromptEndImage] = useState("");
-  const [newPromptRefImages, setNewPromptRefImages] = useState<string[]>(["", "", ""]);
-  const [injectionMode, setInjectionMode] = useState<'t2v' | 'i2v' | 'r2v'>('i2v');
-  const [selectedRatio, setSelectedRatio] = useState<'16:9' | '9:16'>('16:9');
-  const [newPromptCategories, setNewPromptCategories] = useState<string[]>([]);
-  const [customTag, setCustomTag] = useState("");
-  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
-  const [isBackfilling, setIsBackfilling] = useState(false);
-  const autoTagTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const [activeTab, setActiveTab] = useState('prompts');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isImageGenerating, setIsImageGenerating] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [showOnlyReady, setShowOnlyReady] = useState(true);
+  const [activeTab, setActiveTab] = useState('generate');
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
+
+  // Generate (JSON) tab
+  const [genCases, setGenCases] = useState<GenCase[]>([]);
+  const [genCasesFile, setGenCasesFile] = useState<File | null>(null);
+  const [genAssetFiles, setGenAssetFiles] = useState<File[]>([]);
+  const [genParseError, setGenParseError] = useState<string>("");
+  const [isJsonGenerating, setIsJsonGenerating] = useState(false);
+  const [genUploadError, setGenUploadError] = useState<string>("");
+  const [genResult, setGenResult] = useState<any | null>(null);
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTag, setFilterTag] = useState("");
   const [availableTags, setAvailableTags] = useState<string[]>([]);
-
-  // Batch State
-  const [batchRows, setBatchRows] = useState<any[]>([]);
-  const [isBatchRunning, setIsBatchRunning] = useState(false);
-  const [sheetUrl, setSheetUrl] = useState("");
-  const [isLoadingSheet, setIsLoadingSheet] = useState(false);
-  const [batchSearch, setBatchSearch] = useState("");
-  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; errors: number }>({ done: 0, total: 0, errors: 0 });
 
   // Generations review
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
@@ -85,8 +87,7 @@ export default function AdminConsole() {
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
-    const savedAuth = localStorage.getItem('project_pulse_admin_auth');
-    if (savedAuth === 'true') setIsAuthenticated(true);
+    if (getAdminToken() != null) setIsAuthenticated(true);
     const handleExpand = (e: any) => setExpandedImage(e.detail);
     window.addEventListener('expand-image', handleExpand);
     return () => window.removeEventListener('expand-image', handleExpand);
@@ -101,8 +102,9 @@ export default function AdminConsole() {
         body: JSON.stringify({ username, password })
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.token) setAdminToken(data.token);
         setIsAuthenticated(true);
-        localStorage.setItem('project_pulse_admin_auth', 'true');
         setAuthError("");
       } else {
         setAuthError("Invalid credentials");
@@ -114,7 +116,7 @@ export default function AdminConsole() {
 
   const handleLogout = () => {
     setIsAuthenticated(false);
-    localStorage.removeItem('project_pulse_admin_auth');
+    clearAdminToken();
   };
 
   useEffect(() => {
@@ -124,12 +126,6 @@ export default function AdminConsole() {
     const interval = setInterval(fetchJobs, 30000);
     return () => clearInterval(interval);
   }, []);
-
-  const formatUrl = (url?: string) => {
-    if (!url) return url;
-    if (url.startsWith('/api/media')) return `${API_BASE_URL}${url}`;
-    return url;
-  };
 
   const fetchTags = async () => {
     try {
@@ -143,7 +139,7 @@ export default function AdminConsole() {
 
   const fetchJobs = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/jobs`);
+      const res = await adminFetch(`${API_BASE_URL}/api/sxs/jobs`);
       const data = await res.json();
       const mapped = (data || []).map((job: any) => {
         const modelIds = Object.keys(job.results || {});
@@ -193,13 +189,13 @@ export default function AdminConsole() {
   };
 
   const handleToggleModel = async (mid: string) => {
-    await fetch(`${API_BASE_URL}/api/models/${mid}/toggle`, { method: "POST" });
+    await adminFetch(`${API_BASE_URL}/api/models/${mid}/toggle`, { method: "POST" });
     fetchModels();
   };
 
   const handleDeleteModel = async (mid: string) => {
     if (!confirm("Delete this model?")) return;
-    await fetch(`${API_BASE_URL}/api/models/${mid}`, { method: "DELETE" });
+    await adminFetch(`${API_BASE_URL}/api/models/${mid}`, { method: "DELETE" });
     fetchModels();
   };
 
@@ -423,339 +419,88 @@ export default function AdminConsole() {
     URL.revokeObjectURL(url);
   };
 
-  const handleGenerateImage = async (field: string) => {
-    if (!newPromptText) return alert("Enter prompt text first");
-    setIsImageGenerating(true);
-    try {
-      const resp = await fetch(`${API_BASE_URL}/api/generate-image`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: newPromptText, ratio: selectedRatio })
-      });
-      const data = await resp.json();
-      if (data.status === "success") {
-        if (field === "start") setNewPromptStartImage(data.url);
-        else if (field === "end") setNewPromptEndImage(data.url);
-        else if (field.startsWith("ref_")) {
-          const idx = parseInt(field.split("_")[1]);
-          const nr = [...newPromptRefImages];
-          nr[idx] = data.url;
-          setNewPromptRefImages(nr);
-        }
-      } else {
-        alert("Generation failed: " + (data.detail || "Unknown error"));
-      }
-    } catch (err) {
-      alert("Failed to connect to backend");
-    } finally {
-      setIsImageGenerating(false);
-    }
-  };
+  // ---------- Generate (JSON) tab ----------
+  const activeModels = models.filter(m => m.is_active);
 
-  const fetchTagSuggestions = useCallback(async (text: string) => {
-    if (!text.trim() || text.trim().length < 10) return;
-    setIsGeneratingTags(true);
-    try {
-      const resp = await fetch(`${API_BASE_URL}/api/admin/generate-tags`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text,
-          start_image_url: injectionMode === 'i2v' ? newPromptStartImage : null,
-          end_image_url: injectionMode === 'i2v' ? newPromptEndImage : null,
-          reference_images: injectionMode === 'r2v' ? newPromptRefImages.filter(u => u) : null
-        })
-      });
-      const data = await resp.json();
-      if (data.status === "success") {
-        setNewPromptCategories(prev => Array.from(new Set([...prev, ...data.tags])));
-      }
-    } catch (err) {
-      console.error("Failed to suggest tags", err);
-    } finally {
-      setIsGeneratingTags(false);
-    }
-  }, [injectionMode, newPromptStartImage, newPromptEndImage, newPromptRefImages]);
-
-  // Auto-suggest tags when prompt text changes (debounced 1.5s)
-  useEffect(() => {
-    if (autoTagTimerRef.current) clearTimeout(autoTagTimerRef.current);
-    if (newPromptText.trim().length >= 10 && newPromptCategories.length === 0) {
-      autoTagTimerRef.current = setTimeout(() => {
-        fetchTagSuggestions(newPromptText);
-      }, 1500);
-    }
-    return () => { if (autoTagTimerRef.current) clearTimeout(autoTagTimerRef.current); };
-  }, [newPromptText]);
-
-  const handleSuggestTags = async () => {
-    if (!newPromptText.trim()) return alert("Enter prompt text first");
-    fetchTagSuggestions(newPromptText);
-  };
-
-  const handleBackfillTags = async () => {
-    if (!confirm("This will auto-generate tags for all untagged jobs and prompts using Gemini. Continue?")) return;
-    setIsBackfilling(true);
-    try {
-      const resp = await fetch(`${API_BASE_URL}/api/admin/backfill-tags`, { method: "POST" });
-      const data = await resp.json();
-      if (data.status === "success") {
-        alert(`Backfill complete: ${data.tagged_jobs} jobs and ${data.tagged_prompts} prompts tagged.`);
-        fetchJobs();
-        fetchTags();
-      } else {
-        alert("Backfill failed");
-      }
-    } catch {
-      alert("Failed to connect to backend");
-    } finally {
-      setIsBackfilling(false);
-    }
-  };
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
+  const handleGenCasesJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    setGenParseError("");
+    setGenCases([]);
+    setGenCasesFile(null);
+    setGenResult(null);
     if (!file) return;
-    const formData = new FormData();
-    formData.append('file', file);
     try {
-      const resp = await fetch(`${API_BASE_URL}/api/upload`, { method: "POST", body: formData });
-      const data = await resp.json();
-      if (data.status === "success") setter(data.url);
-      else alert("Upload failed");
-    } catch {
-      alert("Upload failed");
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const list: GenCase[] = Array.isArray(parsed) ? parsed : (parsed.cases ?? parsed.items ?? []);
+      if (!Array.isArray(list)) throw new Error("JSON must be an array of cases or have a 'cases' array.");
+      setGenCases(list);
+      setGenCasesFile(file);
+    } catch (err: any) {
+      setGenParseError(err?.message || "Failed to parse JSON");
     }
   };
 
-  const handleAddPrompt = async () => {
-    if (!newPromptText.trim() || isGenerating) return;
-    setIsGenerating(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: newPromptText,
-          categories: newPromptCategories,
-          ratio: selectedRatio,
-          start_image_url: injectionMode === 'i2v' ? (newPromptStartImage || null) : null,
-          end_image_url: injectionMode === 'i2v' ? (newPromptEndImage || null) : null,
-          reference_images: injectionMode === 'r2v' ? newPromptRefImages.filter(u => u) : null,
-          reference_image_url: injectionMode === 'r2v' ? (newPromptRefImages[0] || null) : null,
-          mode: injectionMode
-        })
-      });
-      if (!response.ok) throw new Error(`Server: ${response.status}`);
-      const data = await response.json();
+  const relOf = (f: File) => ((f as any).webkitRelativePath as string) || f.name;
 
-      setPrompts([{
-        id: data.job_id || Date.now(),
-        prompt_id: data.job_id,
-        text: newPromptText,
-        start_image_url: injectionMode === 'i2v' ? newPromptStartImage : undefined,
-        end_image_url: injectionMode === 'i2v' ? newPromptEndImage : undefined,
-        reference_images: injectionMode === 'r2v' ? newPromptRefImages.filter(u => u) : undefined,
-        categories: newPromptCategories,
-        models: ["Veo", "Kling", "Seedance"],
-        status: "generating",
-        ratio: selectedRatio,
-        timestamp: "Just now"
-      }, ...prompts]);
-
-      setNewPromptCategories([]);
-      setCustomTag("");
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
-    } catch (e) {
-      console.error("API Error:", e);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  // Batch handling
-  const handleBatchLoadFromSheet = async () => {
-    if (!sheetUrl) return;
-    setIsLoadingSheet(true);
-    try {
-      const resp = await fetch(`${API_BASE_URL}/api/admin/batch/sheet/load`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: sheetUrl })
-      });
-      const data = await resp.json();
-      if (data.status === "success") {
-        const rows = data.rows || [];
-        const mapped = [];
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          if (row.length > 2 && row[0]) {
-            const colJ = String(row[9] ?? "").trim().toUpperCase();
-            // Only generate when column J is explicitly "FALSE"; blank or TRUE = skip
-            const isSuccess = colJ !== "FALSE";
-            mapped.push({
-              promptId: row[0], mode: (row[1] || "").toLowerCase().trim(),
-              text: row[2], startImg: row[3], endImg: row[4],
-              ref1: row[5], ref2: row[6], ref3: row[7], model: row[8],
-              success: isSuccess,
-              error: row[10] || "",
-              ratio: (row[11] || "16:9").trim(),
-              rowIndex: i + 1,
-              batchStatus: isSuccess ? "done" : "pending" as "pending" | "running" | "done" | "error"
-            });
-          }
+  const handleGenAssets = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files ? Array.from(e.target.files) : [];
+    setGenAssetFiles((prev) => {
+      const seen = new Set(prev.map((f) => `${relOf(f)}::${f.size}`));
+      const merged = [...prev];
+      for (const f of picked) {
+        const key = `${relOf(f)}::${f.size}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          merged.push(f);
         }
-        setBatchRows(mapped.filter(r => r.promptId && r.promptId.toLowerCase() !== "prompt id"));
-        setBatchProgress({ done: 0, total: 0, errors: 0 });
-      } else {
-        alert("Load Failed");
       }
-    } catch {
-      alert("Failed to connect to backend");
-    } finally {
-      setIsLoadingSheet(false);
+      return merged;
+    });
+    e.target.value = "";
+  };
+
+  const clearGenAssets = () => setGenAssetFiles([]);
+
+  const genCountList = (c: GenCase, ...keys: string[]) => {
+    for (const k of keys) {
+      const v = c[k];
+      if (Array.isArray(v)) return v.length;
     }
+    return 0;
   };
 
-  // Group batch rows by promptId for display & execution
-  const getBatchGroups = () => {
-    const groups: Record<string, { promptId: string; mode: string; text: string; ratio: string; models: string[]; rows: typeof batchRows; allSuccess: boolean; hasError: boolean }> = {};
-    for (const row of batchRows) {
-      if (!groups[row.promptId]) {
-        groups[row.promptId] = {
-          promptId: row.promptId, mode: row.mode, text: row.text,
-          ratio: row.ratio || "16:9",
-          models: [], rows: [], allSuccess: true, hasError: false
-        };
-      }
-      groups[row.promptId].rows.push(row);
-      // Only include models whose rows are not already marked success
-      if (row.model && row.batchStatus !== "done") groups[row.promptId].models.push(row.model.trim());
-      if (row.batchStatus !== "done") groups[row.promptId].allSuccess = false;
-      if (row.batchStatus === "error") groups[row.promptId].hasError = true;
-    }
-    return groups;
-  };
-
-  const filteredBatchGroups = () => {
-    const groups = getBatchGroups();
-    if (!batchSearch) return Object.values(groups);
-    const q = batchSearch.toLowerCase();
-    return Object.values(groups).filter(g =>
-      g.promptId.toLowerCase().includes(q) ||
-      g.text.toLowerCase().includes(q) ||
-      g.models.some(m => m.toLowerCase().includes(q))
-    );
-  };
-
-  const handleRunBatch = async () => {
-    if (!batchRows.length) return;
-    setIsBatchRunning(true);
-    const groups = getBatchGroups();
-    const pendingGroups = Object.values(groups).filter(g => !g.allSuccess);
-    const total = pendingGroups.length;
-    let done = 0;
-    let errors = 0;
-    setBatchProgress({ done: 0, total, errors: 0 });
-
-    // Update row status helper
-    const setRowStatus = (promptId: string, status: "running" | "done" | "error", error?: string) => {
-      setBatchRows(prev => prev.map(r =>
-        r.promptId === promptId ? { ...r, batchStatus: status, ...(error ? { error } : {}), ...(status === "done" ? { success: true } : {}) } : r
-      ));
-    };
-
+  const handleGenerateJson = async () => {
+    if (!genCases.length || isJsonGenerating) return;
+    setIsJsonGenerating(true);
+    setGenUploadError("");
+    setGenResult(null);
     try {
-      const keys = pendingGroups.map(g => g.promptId);
-      for (let i = 0; i < keys.length; i += 10) {
-        const chunk = keys.slice(i, i + 10);
-        await Promise.all(chunk.map(async (pid) => {
-          const g = groups[pid];
-          setRowStatus(pid, "running");
-          try {
-            // No hardcoded categories — let Gemini auto-tag
-            const res = await fetch(`${API_BASE_URL}/api/generate`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                text: g.text, categories: [],
-                ratio: g.ratio,
-                start_image_url: g.rows[0]?.startImg || null,
-                end_image_url: g.rows[0]?.endImg || null,
-                reference_images: [g.rows[0]?.ref1, g.rows[0]?.ref2, g.rows[0]?.ref3].filter(Boolean).length ? [g.rows[0]?.ref1, g.rows[0]?.ref2, g.rows[0]?.ref3].filter(Boolean) : null,
-                reference_image_url: g.rows[0]?.ref1 || null,
-                mode: g.mode,
-                model_ids: g.models.length > 0 ? g.models : undefined,
-                prompt_id: pid
-              })
-            });
-            if (!res.ok) throw new Error(`API ${res.status}`);
-            const genResult = await res.json();
-            const jobId = genResult.job_id;
-
-            // Poll job status until all models finish (max 15 min)
-            const pollInterval = 10_000;
-            const maxPolls = 90;
-            let pollCount = 0;
-            let jobStatus: any = null;
-
-            while (pollCount < maxPolls) {
-              await new Promise(r => setTimeout(r, pollInterval));
-              pollCount++;
-              try {
-                const statusRes = await fetch(`${API_BASE_URL}/api/admin/jobs/${jobId}/status`);
-                if (statusRes.ok) {
-                  jobStatus = await statusRes.json();
-                  if (jobStatus.all_done) break;
-                }
-              } catch { /* retry */ }
-            }
-
-            // Only update rows that were not already marked success
-            const pendingRows = g.rows.filter((r: any) => r.batchStatus !== "done");
-
-            if (jobStatus?.all_done && jobStatus.succeeded > 0) {
-              // At least one model succeeded — mark success
-              const errorDetail = jobStatus.failed > 0
-                ? `${jobStatus.succeeded}/${jobStatus.total_models} succeeded. Failures: ${jobStatus.errors.map((e: any) => `${e.model}: ${e.error}`).join('; ').slice(0, 200)}`
-                : "";
-              setRowStatus(pid, "done");
-              done++;
-              for (const row of pendingRows) {
-                fetch(`${API_BASE_URL}/api/admin/batch/sheet/update`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: sheetUrl, row: row.rowIndex, success: true, error: errorDetail }) }).catch(() => {});
-              }
-            } else {
-              // All models failed or timed out
-              const errorMsg = jobStatus?.errors?.map((e: any) => `${e.model}: ${e.error}`).join('; ').slice(0, 200) || "All models failed or timed out";
-              throw new Error(errorMsg);
-            }
-          } catch (err: any) {
-            setRowStatus(pid, "error", err?.message || "Failed");
-            errors++;
-            const pendingRows = g.rows.filter((r: any) => r.batchStatus !== "done");
-            for (const row of pendingRows) {
-              fetch(`${API_BASE_URL}/api/admin/batch/sheet/update`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: sheetUrl, row: row.rowIndex, success: false, error: err?.message || "Failed" }) }).catch(() => {});
-            }
-          }
-          setBatchProgress({ done, total, errors });
-        }));
+      const fd = new FormData();
+      if (genCasesFile) {
+        fd.append("cases", genCasesFile, "cases.json");
+      } else {
+        fd.append("cases", new Blob([JSON.stringify(genCases)], { type: "application/json" }), "cases.json");
       }
-    } catch (e) {
-      console.error("Batch error", e);
-    } finally {
-      setIsBatchRunning(false);
+      for (const f of genAssetFiles) {
+        const rel = (f as any).webkitRelativePath || f.name;
+        fd.append("files", f, rel);
+      }
+      const res = await adminFetch(`${API_BASE_URL}/api/admin/generate-json`, { method: "POST", body: fd });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail?.detail || `Server responded ${res.status}`);
+      }
+      const data = await res.json();
+      setGenResult(data);
       fetchJobs();
       fetchTags();
+    } catch (err: any) {
+      setGenUploadError(err?.message || "Generation failed");
+    } finally {
+      setIsJsonGenerating(false);
     }
   };
-
-  // Filter prompts by search query and tag
-  const filteredPrompts = prompts.filter(p => {
-    if (showOnlyReady && p.status !== 'complete') return false;
-    if (searchQuery && !p.text.toLowerCase().includes(searchQuery.toLowerCase()) && !p.prompt_id?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    if (filterTag && !(p.categories || []).some(c => c.toLowerCase() === filterTag.toLowerCase())) return false;
-    return true;
-  });
 
   return (
     <div className="min-h-screen bg-[#020408] text-white p-6 relative font-sans selection:bg-indigo-500/30 overflow-x-hidden">
@@ -793,8 +538,10 @@ export default function AdminConsole() {
         </div>
       )}
 
-      {/* Nav */}
-      <nav className="fixed w-full border-b border-white/5 bg-[#06080b]/80 backdrop-blur-xl z-50">
+      <Nav active="admin" />
+
+      {/* Admin sub-nav (tabs) */}
+      <nav className="fixed w-full top-[73px] border-b border-white/5 bg-[#06080b]/80 backdrop-blur-xl z-40">
         <div className="max-w-7xl mx-auto px-8 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3 group cursor-pointer">
             <div className="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-[2px] rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.2)]">
@@ -807,10 +554,9 @@ export default function AdminConsole() {
 
           <div className="flex items-center space-x-2 bg-white/[0.03] border border-white/10 rounded-full p-1 shadow-inner">
             {[
-              { id: 'prompts', label: 'Prompt Engine' },
+              { id: 'generate', label: 'Generate (JSON)', icon: <UploadCloud className="w-4 h-4" /> },
               { id: 'generations', label: 'Generations', icon: <Eye className="w-4 h-4" /> },
               { id: 'models', label: 'Model Registry' },
-              { id: 'batch', label: 'Batch Upload', icon: <UploadCloud className="w-4 h-4" /> },
               { id: 'guidelines', label: 'Guidelines', icon: <BookOpen className="w-4 h-4" /> },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-6 py-2 rounded-full text-sm font-semibold flex items-center gap-2 transition-all duration-300 ${activeTab === tab.id ? 'bg-indigo-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.3)]' : 'text-gray-400 hover:text-gray-200'}`}>
@@ -828,7 +574,7 @@ export default function AdminConsole() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-8 pt-32 pb-20 relative z-10">
+      <main className="max-w-7xl mx-auto px-8 pt-44 pb-20 relative z-10">
 
         {/* ============ MODEL REGISTRY ============ */}
         {activeTab === 'models' && (
@@ -881,208 +627,189 @@ export default function AdminConsole() {
           </div>
         )}
 
-        {/* ============ PROMPT ENGINE ============ */}
-        {activeTab === 'prompts' && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
+        {/* ============ GENERATE (JSON) ============ */}
+        {activeTab === 'generate' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 space-y-8">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
               <div>
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-bold uppercase tracking-widest mb-4">
-                  <Sparkles className="w-3.5 h-3.5" /> Benchmarking Arena
+                  <UploadCloud className="w-3.5 h-3.5" /> Generation Pipeline
                 </div>
-                <h2 className="text-4xl md:text-5xl font-light text-white mb-4 tracking-tight leading-tight">
-                  Hard <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">Prompt Library</span>
+                <h2 className="text-4xl md:text-5xl font-light text-white mb-2 tracking-tight leading-tight">
+                  Generate from <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">Cases JSON</span>
                 </h2>
-              </div>
-              <div className="flex gap-4">
-                <StatBox label="Total" value={prompts.length} />
-                <StatBox label="Success" value={prompts.filter(p => p.status === 'complete').length} />
-                <StatBox label="Failed" value={prompts.filter(p => p.status === 'error').length} />
+                <p className="text-gray-500 text-sm">Upload a cases JSON (same schema as SxS) plus referenced assets. Each active model matching a case&apos;s modality runs automatically.</p>
               </div>
             </div>
 
-            {/* Injection Card */}
-            <div className="relative group mb-16">
-              <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-[30px] blur opacity-10 group-hover:opacity-20 transition duration-1000"></div>
-              <div className="relative bg-[#0d1017] border border-white/10 rounded-[28px] p-8 md:p-10 shadow-3xl">
-                <div className="flex items-center gap-3 mb-8">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20"><Zap className="w-6 h-6 text-indigo-400" /></div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-white">Inject New Scenario</h3>
-                    <p className="text-sm text-gray-500">Expert-curated multi-asset benchmark</p>
-                  </div>
-
-                  {/* Mode & Ratio Selectors */}
-                  <div className="ml-auto flex gap-3">
-                    {/* Mode */}
-                    <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
-                      {['t2v', 'i2v', 'r2v'].map(m => (
-                        <button key={m} onClick={() => setInjectionMode(m as any)} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${injectionMode === m ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-gray-500 hover:text-gray-300'}`}>
-                          {m.toUpperCase()}
-                        </button>
+            {/* Active models note */}
+            <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-5 flex items-start gap-4">
+              <Info className="w-6 h-6 text-indigo-400/60 shrink-0 mt-0.5" />
+              <div className="text-sm text-gray-400 leading-relaxed">
+                {activeModels.length === 0 ? (
+                  <span className="text-amber-400">No active models — enable models in the Model Registry tab first.</span>
+                ) : (
+                  <>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Active models</span>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {activeModels.map(m => (
+                        <span key={m.id} className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[11px] font-bold">
+                          {m.name} <span className="text-gray-500 uppercase text-[9px]">{m.type}</span>
+                        </span>
                       ))}
                     </div>
-                    {/* Ratio */}
-                    <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
-                      {(['16:9', '9:16'] as const).map(r => (
-                        <button key={r} onClick={() => setSelectedRatio(r)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${selectedRatio === r ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/20' : 'text-gray-500 hover:text-gray-300'}`}>
-                          {r}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-10">
-                  <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                    {/* Prompt Text */}
-                    <div className="lg:col-span-2 relative">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-3 ml-2 italic">Video Core Prompt</div>
-                      <textarea value={newPromptText} onChange={(e) => setNewPromptText(e.target.value)} placeholder="e.g., A panoramic tracking shot of a mountain range at golden hour..." className="w-full bg-[#06080b] border border-white/10 rounded-2xl p-6 text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all resize-none h-[280px] text-lg leading-relaxed shadow-inner" />
-                      {isGenerating && <div className="absolute inset-0 bg-[#06080b]/50 backdrop-blur-sm rounded-2xl flex items-center justify-center z-20"><Loader2 className="w-8 h-8 text-indigo-400 animate-spin" /></div>}
-                    </div>
-
-                    {/* Image Inputs */}
-                    <div className="lg:col-span-2 space-y-6">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        {injectionMode === 'i2v' && (
-                          <>
-                            <ImageInputCell label="Start Frame" value={newPromptStartImage} onChange={setNewPromptStartImage} onGenerate={() => handleGenerateImage("start")} onUpload={(e) => handleImageUpload(e, setNewPromptStartImage)} isGenerating={isImageGenerating} icon={<PlayCircle className="w-4 h-4" />} />
-                            <ImageInputCell label="End Frame" value={newPromptEndImage} onChange={setNewPromptEndImage} onGenerate={() => handleGenerateImage("end")} onUpload={(e) => handleImageUpload(e, setNewPromptEndImage)} isGenerating={isImageGenerating} icon={<StopCircle className="w-4 h-4" />} />
-                          </>
-                        )}
-                        {injectionMode === 'r2v' && [0, 1, 2].map(idx => (
-                          <ImageInputCell key={idx} label={`Ref ${idx + 1}`} value={newPromptRefImages[idx]} onChange={(val) => { const nr = [...newPromptRefImages]; nr[idx] = val; setNewPromptRefImages(nr); }} onGenerate={() => handleGenerateImage(`ref_${idx}`)} onUpload={(e) => handleImageUpload(e, (val) => { const nr = [...newPromptRefImages]; nr[idx] = val; setNewPromptRefImages(nr); })} isGenerating={isImageGenerating} icon={<ImageIcon className="w-4 h-4" />} />
-                        ))}
-                        {injectionMode === 't2v' && (
-                          <div className="col-span-3 h-full flex items-center justify-center border-2 border-dashed border-white/5 rounded-3xl p-8">
-                            <div className="text-center">
-                              <Sparkles className="w-8 h-8 text-indigo-400/30 mx-auto mb-2" />
-                              <div className="text-gray-500 text-xs font-medium uppercase tracking-widest">Pure T2V Mode</div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      {injectionMode !== 't2v' && (
-                        <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl flex items-center gap-4">
-                          <Info className="w-8 h-8 text-indigo-400/50 shrink-0" />
-                          <p className="text-[11px] text-gray-400 leading-relaxed font-light">
-                            {injectionMode === 'i2v' ? "Start/end frames for I2V benchmarking." : "Reference images for character/style consistency."}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Tags & Deploy */}
-                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-8 border-t border-white/5">
-                    <div className="flex flex-col gap-4">
-                      <div className="flex items-center justify-between px-2">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-gray-500 italic flex items-center gap-2">
-                          Tags & Categories
-                          {isGeneratingTags && <span className="text-indigo-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> auto-generating...</span>}
-                          {!isGeneratingTags && newPromptCategories.length > 0 && <span className="text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> {newPromptCategories.length} tags</span>}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button onClick={handleSuggestTags} disabled={isGeneratingTags} className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 transition-all disabled:opacity-50">
-                            {isGeneratingTags ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Regenerate
-                          </button>
-                          <button onClick={handleBackfillTags} disabled={isBackfilling} className="text-[10px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 transition-all disabled:opacity-50">
-                            {isBackfilling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Tag className="w-3 h-3" />} Backfill All
-                          </button>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2 p-1.5 bg-white/[0.03] border border-white/5 rounded-2xl">
-                        {PRESET_CATEGORIES.map(c => (
-                          <button key={c} onClick={() => {
-                            if (newPromptCategories.includes(c)) setNewPromptCategories(newPromptCategories.filter(x => x !== c));
-                            else setNewPromptCategories([...newPromptCategories, c]);
-                          }} className={`px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${newPromptCategories.includes(c) ? 'bg-white text-[#06080b] shadow-xl' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}>
-                            {c}
-                          </button>
-                        ))}
-                        <div className="flex items-center gap-2 pl-2 border-l border-white/10 ml-2">
-                          <input type="text" value={customTag} onChange={(e) => setCustomTag(e.target.value)} onKeyDown={(e) => {
-                            if (e.key === 'Enter' && customTag.trim()) {
-                              if (!newPromptCategories.includes(customTag.trim())) setNewPromptCategories([...newPromptCategories, customTag.trim()]);
-                              setCustomTag("");
-                            }
-                          }} placeholder="Custom..." className="bg-transparent border-b border-white/10 text-xs py-1 px-1 focus:outline-none focus:border-indigo-500 w-24 placeholder:text-gray-700" />
-                          <button onClick={() => {
-                            if (customTag.trim() && !newPromptCategories.includes(customTag.trim())) {
-                              setNewPromptCategories([...newPromptCategories, customTag.trim()]);
-                              setCustomTag("");
-                            }
-                          }} className="p-1 hover:bg-white/5 rounded-lg transition-all"><PlusCircle className="w-4 h-4 text-gray-500" /></button>
-                        </div>
-                      </div>
-                      {newPromptCategories.filter(c => !PRESET_CATEGORIES.includes(c)).length > 0 && (
-                        <div className="flex flex-wrap gap-2 px-2">
-                          {newPromptCategories.filter(c => !PRESET_CATEGORIES.includes(c)).map(tag => (
-                            <span key={tag} className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold text-gray-400 flex items-center gap-2">
-                              {tag} <X className="w-3 h-3 cursor-pointer hover:text-red-400" onClick={() => setNewPromptCategories(newPromptCategories.filter(x => x !== tag))} />
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <button onClick={handleAddPrompt} disabled={!newPromptText.trim() || isGenerating} className="w-full md:w-auto min-w-[260px] bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 disabled:from-gray-800 disabled:to-gray-900 text-white font-bold py-4.5 px-10 rounded-2xl transition-all shadow-[0_10px_30px_rgba(99,102,241,0.2)] flex items-center justify-center gap-3 group active:scale-[0.98] text-lg">
-                      {isGenerating ? <><Loader2 className="w-5 h-5 animate-spin" /> Generating...</> : <>Deploy Scenario <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" /></>}
-                    </button>
-                  </div>
-                </div>
-
-                {showSuccess && (
-                  <div className="mt-6 animate-in fade-in slide-in-from-top-2 flex items-center gap-2 text-emerald-400 bg-emerald-500/10 px-4 py-3 rounded-xl border border-emerald-500/20">
-                    <CheckCircle2 className="w-5 h-5" /> Scenario initialized across the grid.
-                  </div>
+                    <p className="text-[11px] text-gray-600 mt-2">Generation runs each active model matching a case&apos;s modality.</p>
+                  </>
                 )}
               </div>
             </div>
 
-            {/* Scenarios List with Search & Tag Filter */}
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between px-2 gap-4">
-                <h3 className="text-2xl font-light text-white flex items-center gap-3">
-                  <Database className="w-6 h-6 text-indigo-400" /> Active Scenarios
-                </h3>
-                <div className="flex items-center gap-3">
-                  {/* Search */}
-                  <div className="relative flex items-center">
-                    <Search className="w-4 h-4 text-gray-500 absolute left-3" />
-                    <input type="text" placeholder="Search prompts or IDs..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 w-56 placeholder-gray-500" />
-                    {searchQuery && <X className="w-4 h-4 text-gray-500 absolute right-3 cursor-pointer hover:text-white" onClick={() => setSearchQuery("")} />}
-                  </div>
-
-                  {/* Tag Filter */}
-                  <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl text-sm text-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
-                    <option value="">All Tags</option>
-                    {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-
-                  {/* Hide Incomplete Toggle */}
-                  <div className="flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-2 rounded-xl">
-                    <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Complete Only</span>
-                    <button onClick={() => setShowOnlyReady(!showOnlyReady)} className={`w-10 h-6 rounded-full transition-colors relative flex items-center ${showOnlyReady ? 'bg-indigo-500' : 'bg-white/10'}`}>
-                      <div className={`w-4 h-4 bg-white rounded-full mx-1 transition-transform ${showOnlyReady ? 'translate-x-4' : 'translate-x-0'}`}></div>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-4">
-                {filteredPrompts.length === 0 ? (
-                  <div className="text-center py-20 text-gray-500">
-                    <p className="text-sm">No scenarios match your filters.</p>
-                    {(searchQuery || filterTag) && (
-                      <button onClick={() => { setSearchQuery(""); setFilterTag(""); }} className="mt-4 px-4 py-2 rounded-xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-bold uppercase">Clear Filters</button>
+            {/* Upload card */}
+            <div className="relative group">
+              <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500 rounded-[30px] blur opacity-10 group-hover:opacity-20 transition duration-1000"></div>
+              <div className="relative bg-[#0d1017] border border-white/10 rounded-[28px] p-8 md:p-10 shadow-3xl space-y-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Cases JSON */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1">Cases JSON</label>
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleGenCasesJson}
+                      className="w-full text-sm text-gray-400 bg-[#06080b] border border-white/10 rounded-2xl px-5 py-4 file:mr-4 file:py-2 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-black file:uppercase file:tracking-widest file:bg-indigo-500/20 file:text-indigo-300 hover:file:bg-indigo-500/30 file:cursor-pointer cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/40 transition-all"
+                    />
+                    {genParseError && (
+                      <div className="text-red-400 text-xs font-bold bg-red-500/10 border border-red-500/20 px-4 py-3 rounded-xl">
+                        {genParseError}
+                      </div>
+                    )}
+                    {genCases.length > 0 && (
+                      <div className="text-emerald-400 text-xs font-bold">{genCases.length} case(s) parsed</div>
                     )}
                   </div>
-                ) : (
-                  filteredPrompts.map(prompt => <PromptItem key={prompt.id} prompt={prompt} onTagClick={setFilterTag} />)
+
+                  {/* Assets */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1">
+                      Asset Folders (add each client folder — picks accumulate)
+                    </label>
+                    <input
+                      type="file"
+                      multiple
+                      {...({ webkitdirectory: "" } as any)}
+                      onChange={handleGenAssets}
+                      className="w-full text-sm text-gray-400 bg-[#06080b] border border-white/10 rounded-2xl px-5 py-4 file:mr-4 file:py-2 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-black file:uppercase file:tracking-widest file:bg-purple-500/20 file:text-purple-300 hover:file:bg-purple-500/30 file:cursor-pointer cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-500/40 transition-all"
+                    />
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest px-1">
+                        Fallback: pick individual files
+                      </label>
+                      <input
+                        type="file"
+                        multiple
+                        onChange={handleGenAssets}
+                        className="w-full text-xs text-gray-500 bg-[#06080b] border border-white/10 rounded-2xl px-5 py-3 file:mr-4 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:uppercase file:tracking-widest file:bg-white/10 file:text-gray-300 file:cursor-pointer cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
+                      />
+                    </div>
+                    {genAssetFiles.length > 0 && (
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-emerald-400 text-xs font-bold">{genAssetFiles.length} asset file(s) staged</div>
+                        <button onClick={clearGenAssets} className="text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-red-400 transition-colors">
+                          Clear
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {genUploadError && (
+                  <div className="text-red-400 text-xs font-bold bg-red-500/10 border border-red-500/20 px-4 py-3 rounded-xl">
+                    {genUploadError}
+                  </div>
                 )}
+
+                <button
+                  onClick={handleGenerateJson}
+                  disabled={!genCases.length || isJsonGenerating}
+                  className="w-full bg-gradient-to-r from-indigo-500 via-purple-600 to-emerald-600 hover:from-indigo-400 hover:to-emerald-500 text-white font-black py-5 rounded-[28px] shadow-[0_20px_50px_rgba(99,102,241,0.25)] transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed uppercase tracking-widest text-sm flex items-center justify-center gap-3"
+                >
+                  {isJsonGenerating ? <><Loader2 className="w-5 h-5 animate-spin" /> Uploading &amp; Launching...</> : <>Generate + Validate <ArrowRight className="w-5 h-5" /></>}
+                </button>
               </div>
             </div>
+
+            {/* Success summary */}
+            {genResult && (
+              <div className="bg-emerald-500/[0.04] border border-emerald-500/20 rounded-[28px] p-8 animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-5">
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                  <h3 className="text-xl font-semibold text-white">Batch queued</h3>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="bg-[#06080b] border border-white/5 rounded-2xl p-4 text-center">
+                    <div className="text-2xl font-black text-emerald-400">{genResult.count ?? 0}</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-gray-500 mt-1">Queued</div>
+                  </div>
+                  <div className="bg-[#06080b] border border-white/5 rounded-2xl p-4 text-center">
+                    <div className="text-2xl font-black text-amber-400">{genResult.skipped_existing ?? 0}</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-gray-500 mt-1">Skipped (exists)</div>
+                  </div>
+                  <div className="bg-[#06080b] border border-white/5 rounded-2xl p-4 text-center">
+                    <div className="text-2xl font-black text-gray-400">{genResult.skipped_no_model ?? 0}</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-gray-500 mt-1">No Model</div>
+                  </div>
+                  <div className="bg-[#06080b] border border-white/5 rounded-2xl p-4 text-center">
+                    <div className="text-sm font-mono font-bold text-indigo-300 break-all">{genResult.batch_id ?? "—"}</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-gray-500 mt-1">Batch ID</div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button onClick={() => setActiveTab('generations')} className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-black uppercase tracking-widest hover:bg-purple-500/20 transition-all">
+                    <Eye className="w-4 h-4" /> View Generations
+                  </button>
+                  <a href="/ai-evals" className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-black uppercase tracking-widest hover:bg-indigo-500/20 transition-all">
+                    <Award className="w-4 h-4" /> Open AI Evals <ArrowRight className="w-4 h-4" />
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* Cases preview */}
+            {genCases.length > 0 && (
+              <section className="bg-white/[0.02] border border-white/5 rounded-[28px] p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <h3 className="text-xl font-light text-white mb-6 flex items-center gap-3">
+                  <span className="w-2 h-8 bg-indigo-500 rounded-full"></span> Case Preview
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[10px] font-black uppercase tracking-widest text-gray-500 border-b border-white/10">
+                        <th className="text-left py-3 px-3">Customer</th>
+                        <th className="text-left py-3 px-3">ID</th>
+                        <th className="text-left py-3 px-3">Modality</th>
+                        <th className="text-left py-3 px-3"># Ref Images</th>
+                        <th className="text-left py-3 px-3"># Ref Videos</th>
+                        <th className="text-left py-3 px-3">Aspect Ratio</th>
+                        <th className="text-left py-3 px-3">Duration</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {genCases.map((c, i) => (
+                        <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                          <td className="py-3 px-3 text-gray-300 font-medium">{c.customer ?? "—"}</td>
+                          <td className="py-3 px-3 text-indigo-300 font-mono text-xs">{c.id ?? c.prompt_id ?? "—"}</td>
+                          <td className="py-3 px-3 text-gray-400 uppercase text-xs">{c.modality ?? c.mode ?? "—"}</td>
+                          <td className="py-3 px-3 text-gray-400 font-mono">{genCountList(c, "reference_images", "ref_images")}</td>
+                          <td className="py-3 px-3 text-gray-400 font-mono">{genCountList(c, "reference_videos", "ref_videos")}</td>
+                          <td className="py-3 px-3 text-gray-400 font-mono">{c.aspect_ratio ?? c.ratio ?? "—"}</td>
+                          <td className="py-3 px-3 text-gray-400 font-mono">{c.duration ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
           </div>
         )}
 
@@ -1201,7 +928,7 @@ export default function AdminConsole() {
                           e.stopPropagation();
                           if (!confirm(`Delete job "${job.text?.slice(0, 60)}..."?\nThis cannot be undone.`)) return;
                           try {
-                            const res = await fetch(`${API_BASE_URL}/api/admin/jobs/${job.id}`, { method: 'DELETE' });
+                            const res = await adminFetch(`${API_BASE_URL}/api/sxs/jobs/${job.id}`, { method: 'DELETE' });
                             if (!res.ok) throw new Error('Failed to delete');
                             setPrompts((prev: any[]) => prev.filter((j: any) => j.id !== job.id));
                           } catch (err) {
@@ -1273,8 +1000,7 @@ export default function AdminConsole() {
                               const label = includeStuck ? 'failed + stuck' : 'failed';
                               if (!confirm(`Retry ${count} ${label} model(s)? This will incur generation costs.`)) return;
                               try {
-                                const qs = includeStuck ? '?include_stuck=true' : '';
-                                const res = await fetch(`${API_BASE_URL}/api/admin/jobs/${job.id}/retry${qs}`, { method: 'POST' });
+                                const res = await adminFetch(`${API_BASE_URL}/api/sxs/jobs/${job.id}/retry`, { method: 'POST' });
                                 if (!res.ok) {
                                   const err = await res.json().catch(() => ({}));
                                   throw new Error(err.detail || 'Failed to retry');
@@ -1467,111 +1193,6 @@ export default function AdminConsole() {
           <div className="text-gray-500 text-center py-20 font-light">Refer to the Rating Guidelines documentation.</div>
         )}
 
-        {/* ============ BATCH ============ */}
-        {activeTab === 'batch' && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 space-y-8">
-            <div className="bg-[#0d1017] border border-white/10 rounded-[28px] p-8 md:p-10 shadow-3xl">
-              <div className="flex items-center gap-3 mb-8">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20"><UploadCloud className="w-6 h-6 text-indigo-400" /></div>
-                <div>
-                  <h3 className="text-xl font-semibold text-white">Batch Scenario Runner</h3>
-                  <p className="text-sm text-gray-500">Upload via Google Sheets. Rows with the same Prompt ID are grouped into a single job.</p>
-                </div>
-              </div>
-
-              {batchRows.length === 0 ? (
-                <div className="border border-white/10 rounded-2xl p-8 bg-white/[0.02]">
-                  <div className="flex flex-col gap-4">
-                    <label className="text-sm text-gray-400 font-bold uppercase tracking-widest">Target Google Sheet</label>
-                    <p className="text-xs text-gray-500 mb-2">Columns: <span className="font-mono text-[10px] text-gray-400">A: PromptID, B: Mode, C: Text, D: Start, E: End, F-H: Ref1-3, I: Model, J: Success, K: Error, L: Ratio (optional)</span></p>
-                    <input type="text" value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." className="w-full bg-[#06080b] border border-white/10 rounded-xl px-6 py-4 text-white focus:outline-none focus:border-indigo-500 font-mono text-sm" />
-                    <button onClick={handleBatchLoadFromSheet} disabled={isLoadingSheet || !sheetUrl} className="self-start bg-gradient-to-r from-indigo-500 to-purple-600 disabled:from-gray-700 disabled:to-gray-800 px-8 py-4 rounded-xl text-white font-black tracking-widest text-sm transition-all shadow-lg flex items-center gap-2">
-                      {isLoadingSheet ? <Loader2 className="w-5 h-5 animate-spin" /> : <LinkIcon className="w-5 h-5" />} LOAD SHEET
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {/* Header: stats, search, actions */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="text-sm text-gray-400">
-                        <span className="text-white font-bold">{batchRows.length}</span> rows in{' '}
-                        <span className="text-white font-bold">{Object.keys(getBatchGroups()).length}</span> groups
-                      </div>
-                      {batchProgress.total > 0 && (
-                        <div className="flex items-center gap-2 text-xs">
-                          <div className="w-32 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 rounded-full transition-all" style={{ width: `${Math.round((batchProgress.done / batchProgress.total) * 100)}%` }} />
-                          </div>
-                          <span className="text-gray-400">{batchProgress.done}/{batchProgress.total}</span>
-                          {batchProgress.errors > 0 && <span className="text-red-400">{batchProgress.errors} failed</span>}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="relative flex items-center">
-                        <Search className="w-4 h-4 text-gray-500 absolute left-3" />
-                        <input type="text" placeholder="Search prompts, IDs, models..." value={batchSearch} onChange={(e) => setBatchSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 w-56 placeholder-gray-500" />
-                        {batchSearch && <X className="w-4 h-4 text-gray-500 absolute right-3 cursor-pointer hover:text-white" onClick={() => setBatchSearch("")} />}
-                      </div>
-                      <button onClick={handleRunBatch} disabled={isBatchRunning} className="bg-gradient-to-r from-indigo-500 to-purple-600 px-6 py-2 rounded-xl text-white font-bold text-sm hover:scale-105 transition-transform disabled:opacity-50 flex items-center gap-2">
-                        {isBatchRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />} Run Batch
-                      </button>
-                      <button onClick={() => { setBatchRows([]); setBatchProgress({ done: 0, total: 0, errors: 0 }); setBatchSearch(""); }} className="bg-red-500/10 text-red-400 hover:bg-red-500/20 px-6 py-2 rounded-xl font-bold text-sm">Clear</button>
-                    </div>
-                  </div>
-
-                  {/* Grouped batch display */}
-                  <div className="space-y-3">
-                    {filteredBatchGroups().map(g => {
-                      const statusIcon = g.allSuccess
-                        ? <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                        : g.hasError
-                          ? <AlertCircle className="w-4 h-4 text-red-500" />
-                          : g.rows.some(r => r.batchStatus === "running")
-                            ? <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
-                            : <div className="w-4 h-4 rounded-full border-2 border-white/20" />;
-                      return (
-                        <div key={g.promptId} className={`border rounded-2xl p-5 transition-all ${g.allSuccess ? 'border-emerald-500/20 bg-emerald-500/[0.03]' : g.hasError ? 'border-red-500/20 bg-red-500/[0.03]' : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.03]'}`}>
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-3 mb-2">
-                                {statusIcon}
-                                <span className="font-mono text-sm text-purple-400 font-bold">{g.promptId}</span>
-                                <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-widest rounded-full bg-white/5 border border-white/10 text-gray-400">{g.mode.toUpperCase()}</span>
-                                <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-widest rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400">{g.ratio}</span>
-                              </div>
-                              <p className="text-gray-300 text-sm leading-relaxed line-clamp-2 mb-2">{g.text}</p>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Models:</span>
-                                {g.models.map((m, i) => (
-                                  <span key={i} className="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">{m}</span>
-                                ))}
-                              </div>
-                              {g.hasError && g.rows.filter(r => r.error).length > 0 && (
-                                <div className="mt-2 text-[11px] text-red-400 font-mono">{g.rows.find(r => r.error)?.error}</div>
-                              )}
-                            </div>
-                            <div className="text-right shrink-0">
-                              <div className="text-[10px] text-gray-500 uppercase tracking-widest">{g.rows.length} row{g.rows.length > 1 ? 's' : ''}</div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {filteredBatchGroups().length === 0 && batchSearch && (
-                      <div className="text-center py-10 text-gray-500 text-sm">
-                        No groups match &ldquo;{batchSearch}&rdquo;
-                        <button onClick={() => setBatchSearch("")} className="ml-2 text-indigo-400 hover:text-indigo-300">Clear</button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );

@@ -17,3 +17,13 @@ backend/private.key
 backend_backup/
 frontend_backup/
 backups/
+backend/keys.json
+backend/service_keys.json
+backend/venv.bak/
+backend/**/__pycache__/
+keys.json
+service_keys.json
+claude_sa.json
+*.png
+*.jpeg
+*.mp4

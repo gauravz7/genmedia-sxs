@@ -10,7 +10,7 @@ from collections import defaultdict, Counter
 from typing import List, Dict, Optional
 from urllib.parse import quote, unquote
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Header, BackgroundTasks, Query, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Header, BackgroundTasks, Query, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, HTMLResponse, Response, StreamingResponse
@@ -19,7 +19,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from providers.fal_provider import generate_with_fal
-from providers.vertex_provider import generate_with_veo, generate_tags_with_gemini
+from providers.vertex_provider import generate_with_veo, generate_tags_with_gemini, translate_to_english
+from providers.omni_provider import generate_with_omni
 from util.gcs_utils import upload_from_url, get_signed_url, normalize_gcs_url as _normalize_gcs_url, https_to_gs, get_upload_client
 
 load_dotenv()
@@ -54,6 +55,11 @@ app.add_middleware(
 os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "vital-octagon-19612")
 GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "project-pulse")
+# Isolated test database for the SxS (Seedance vs Omni) feature — kept separate
+# from the production `eval_jobs` / `votes` collections.
+SXS_COLLECTION = os.getenv("SXS_COLLECTION", "sxs_jobs")
+SXS_VOTES_COLLECTION = os.getenv("SXS_VOTES_COLLECTION", "sxs_votes")
+SXS_RUNS_COLLECTION = os.getenv("SXS_RUNS_COLLECTION", "sxs_runs")
 
 VALID_RATIOS = ["16:9", "9:16"]
 
@@ -79,7 +85,7 @@ def normalize_gcs_url(url: str) -> str:
 class RegisteredModel(BaseModel):
     id: str
     name: str
-    provider: str       # 'fal' or 'vertex'
+    provider: str       # 'fal', 'vertex', or 'omni'
     model_id: str
     type: str = "t2v"   # 't2v', 'i2v', 'r2v'
     is_active: bool = True
@@ -131,8 +137,18 @@ class Job(BaseModel):
     end_image_url: Optional[str] = None
     reference_image_url: Optional[str] = None
     reference_images: Optional[List[str]] = None
+    reference_videos: Optional[List[str]] = None
     results: Dict[str, dict]
     generation_history: Dict[str, list] = {}
+    # SxS auto-eval fields (source == "sxs_auto")
+    source: Optional[str] = None
+    batch_id: Optional[str] = None
+    customer: Optional[str] = None
+    modality: Optional[str] = None
+    duration: Optional[int] = None
+    auto_evals: Dict[str, dict] = {}
+    auto_eval_status: Optional[str] = None
+    auto_eval_error: Optional[str] = None
 
     def __init__(self, **data):
         # Migrate legacy single-category field
@@ -250,16 +266,30 @@ prompts_manager = PromptsManager()
 
 
 # ===================================================================
-# Auth
+# Auth — token-based admin gate
 # ===================================================================
+import hashlib
+import hmac
+
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASS = os.getenv("ADMIN_PASS")
+_ADMIN_TOKEN_SALT = "project-pulse-sxs:v1"
 
-async def verify_admin(x_admin_user: str = Header(None), x_admin_pass: str = Header(None)):
+
+def _admin_token() -> Optional[str]:
+    """Stateless admin token derived from ADMIN_PASS. None if unset."""
     if not ADMIN_PASS:
-        raise HTTPException(status_code=500, detail="ADMIN_PASS not configured")
-    if x_admin_user != ADMIN_USER or x_admin_pass != ADMIN_PASS:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        return None
+    return hashlib.sha256(f"{_ADMIN_TOKEN_SALT}:{ADMIN_USER}:{ADMIN_PASS}".encode()).hexdigest()
+
+
+async def require_admin(x_admin_token: str = Header(None)):
+    """FastAPI dependency: gate mutating/expensive endpoints behind admin login."""
+    expected = _admin_token()
+    if not expected:
+        raise HTTPException(status_code=500, detail="ADMIN_PASS not configured on server")
+    if not x_admin_token or not hmac.compare_digest(x_admin_token, expected):
+        raise HTTPException(status_code=401, detail="Admin authentication required")
 
 
 @app.post("/api/admin/login")
@@ -267,7 +297,7 @@ async def admin_login(creds: dict):
     if not ADMIN_PASS:
         raise HTTPException(status_code=500, detail="ADMIN_PASS not configured")
     if creds.get("username") == ADMIN_USER and creds.get("password") == ADMIN_PASS:
-        return {"status": "success"}
+        return {"status": "success", "token": _admin_token()}
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
@@ -279,20 +309,20 @@ async def get_models():
     return list(registry.models.values())
 
 
-@app.post("/api/models")
+@app.post("/api/models", dependencies=[Depends(require_admin)])
 async def add_model(model: RegisteredModel):
     registry.add_model(model)
     return {"status": "success", "model": model}
 
 
-@app.post("/api/models/{model_id}/toggle")
+@app.post("/api/models/{model_id}/toggle", dependencies=[Depends(require_admin)])
 async def toggle_model(model_id: str):
     if registry.toggle_model(model_id):
         return {"status": "success", "is_active": registry.models[model_id].is_active}
     return {"status": "error", "message": "Model not found"}
 
 
-@app.delete("/api/models/{model_id}")
+@app.delete("/api/models/{model_id}", dependencies=[Depends(require_admin)])
 async def delete_model(model_id: str):
     if model_id in registry.models:
         del registry.models[model_id]
@@ -309,7 +339,7 @@ async def get_admin_prompts():
     return prompts_manager.get_all()
 
 
-@app.post("/api/admin/prompts")
+@app.post("/api/admin/prompts", dependencies=[Depends(require_admin)])
 async def add_admin_prompt(req: dict, background_tasks: BackgroundTasks):
     prompt_id = req.get("id") or f"prompt_{int(time.time())}"
     categories = req.get("categories", [req["category"]] if req.get("category") else [])
@@ -337,7 +367,7 @@ async def add_admin_prompt(req: dict, background_tasks: BackgroundTasks):
     return {"status": "success", "prompt": prompt}
 
 
-@app.delete("/api/admin/prompts/{prompt_id}")
+@app.delete("/api/admin/prompts/{prompt_id}", dependencies=[Depends(require_admin)])
 async def delete_admin_prompt(prompt_id: str):
     if prompts_manager.delete_prompt(prompt_id):
         return {"status": "success"}
@@ -347,7 +377,7 @@ async def delete_admin_prompt(prompt_id: str):
 # ===================================================================
 # Image Generation & Upload
 # ===================================================================
-@app.post("/api/generate-image")
+@app.post("/api/generate-image", dependencies=[Depends(require_admin)])
 async def generate_image_api(request: dict):
     prompt = request.get("prompt")
     ratio = request.get("ratio", "16:9")
@@ -366,7 +396,7 @@ async def generate_image_api(request: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/upload")
+@app.post("/api/upload", dependencies=[Depends(require_admin)])
 async def upload_file_api(file: UploadFile = File(...)):
     try:
         safe_filename = "".join(c for c in file.filename if c.isalnum() or c in "._-").replace(" ", "_")
@@ -383,9 +413,748 @@ async def upload_file_api(file: UploadFile = File(...)):
 
 
 # ===================================================================
+# SxS Studio — Seedance 2.0 vs Gemini Omni (JSON-driven gen + auto-eval)
+# ===================================================================
+def _sign_sxs_job(d: dict) -> dict:
+    """Sign result + input-asset GCS URLs of an SxS job doc for the browser."""
+    def _sign(u):
+        if not u:
+            return u
+        if u.startswith("gs://") or "storage.googleapis.com" in u:
+            return get_signed_url(normalize_gcs_url(u))
+        return u
+    for key in ("reference_images", "reference_videos"):
+        if d.get(key):
+            d[key] = [_sign(u) for u in d[key]]
+    for _mid, res in (d.get("results") or {}).items():
+        if isinstance(res, dict):
+            if res.get("url"):
+                res["url"] = _sign(res["url"])
+            if isinstance(res.get("result"), dict) and res["result"].get("url"):
+                res["result"]["url"] = _sign(res["result"]["url"])
+    return d
+
+
+@app.post("/api/sxs/upload", dependencies=[Depends(require_admin)])
+async def sxs_upload(
+    background_tasks: BackgroundTasks,
+    cases: UploadFile = File(...),
+    files: List[UploadFile] = File(default=[]),
+):
+    """Upload a cases JSON + local asset files; create one job per case and
+    schedule background Seedance+Omni generation followed by Core-5 auto-eval."""
+    from util.asset_intake import (
+        save_uploads_to_temp,
+        upload_assets_to_gcs,
+        rewrite_case_assets,
+    )
+    from sxs_pipeline import create_sxs_job, process_batch
+
+    try:
+        raw = await cases.read()
+        parsed = json.loads(raw.decode("utf-8"))
+        case_list = parsed.get("cases", parsed) if isinstance(parsed, dict) else parsed
+        if not isinstance(case_list, list) or not case_list:
+            raise ValueError("cases JSON must be a non-empty array of case objects")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid cases JSON: {e}")
+
+    batch_id = f"batch_{int(time.time())}"
+
+    # Stage uploaded asset files and push them to GCS, then rewrite relative paths.
+    uploaded = []
+    for f in files or []:
+        data = await f.read()
+        uploaded.append(type("U", (), {"filename": f.filename, "bytes": data})())
+    relpath_to_url = {}
+    if uploaded:
+        base_dir = save_uploads_to_temp(uploaded)
+        relpath_to_url = upload_assets_to_gcs(base_dir, batch_id)
+
+    pairs = []
+    for case in case_list:
+        rewritten = rewrite_case_assets(case, relpath_to_url) if relpath_to_url else case
+        job_id = create_sxs_job(rewritten, batch_id=batch_id)
+        pairs.append((job_id, rewritten))
+
+    background_tasks.add_task(process_batch, pairs)
+    jobs_manager.invalidate_cache()
+
+    return {
+        "status": "queued",
+        "batch_id": batch_id,
+        "job_ids": [jid for jid, _ in pairs],
+        "count": len(pairs),
+    }
+
+
+@app.get("/api/sxs/jobs")
+async def sxs_list_jobs(batch: Optional[str] = Query(None)):
+    """List SxS auto-eval jobs (optionally filtered by batch), signed for browser."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    q = db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto")
+    docs = list(q.stream())
+    out = []
+    for doc in docs:
+        d = doc.to_dict()
+        d["id"] = doc.id
+        if batch and d.get("batch_id") != batch:
+            continue
+        out.append(_sign_sxs_job(d))
+    out.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+    return out
+
+
+@app.get("/api/sxs/jobs/{job_id}")
+async def sxs_get_job(job_id: str):
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    doc = db.collection(SXS_COLLECTION).document(job_id).get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Job not found")
+    d = doc.to_dict()
+    d["id"] = doc.id
+    return _sign_sxs_job(d)
+
+
+@app.delete("/api/sxs/jobs/{job_id}", dependencies=[Depends(require_admin)])
+async def sxs_delete_job(job_id: str):
+    """Delete an SxS pair from the isolated sxs_jobs collection."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    ref = db.collection(SXS_COLLECTION).document(job_id)
+    if not ref.get().exists:
+        raise HTTPException(status_code=404, detail="Job not found")
+    ref.delete()
+    return {"status": "deleted", "job_id": job_id}
+
+
+@app.post("/api/sxs/jobs/{job_id}/retry", dependencies=[Depends(require_admin)])
+async def sxs_retry_job(job_id: str, background_tasks: BackgroundTasks):
+    """Re-generate the failed model(s) of one SxS pair, then re-run auto-eval."""
+    from google.cloud import firestore as _fs
+    from sxs_pipeline import retry_job
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    if not db.collection(SXS_COLLECTION).document(job_id).get().exists:
+        raise HTTPException(status_code=404, detail="Job not found")
+    background_tasks.add_task(retry_job, job_id)
+    return {"status": "retrying", "job_id": job_id}
+
+
+@app.get("/api/sxs/aieval/{job_id}")
+async def sxs_get_aieval(job_id: str):
+    """Return the auto-eval (Core-5) reports for a job — used to reveal AI
+    ratings on the human-voting page AFTER a vote is cast."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    # job_id from the voting page may be a prompt_id; resolve to the actual doc.
+    doc = db.collection(SXS_COLLECTION).document(job_id).get()
+    if not doc.exists:
+        snaps = list(
+            db.collection(SXS_COLLECTION).where("prompt_id", "==", job_id).stream()
+        )
+        if not snaps:
+            raise HTTPException(status_code=404, detail="Job not found")
+        d = snaps[0].to_dict()
+    else:
+        d = doc.to_dict()
+    return {
+        "auto_eval_status": d.get("auto_eval_status"),
+        "auto_evals": d.get("auto_evals", {}),
+    }
+
+
+@app.get("/api/sxs/report.json")
+async def sxs_report_json(batch: Optional[str] = Query(None)):
+    data = await sxs_list_jobs(batch=batch)
+    return data
+
+
+@app.get("/api/sxs/report.csv")
+async def sxs_report_csv(batch: Optional[str] = Query(None)):
+    import csv
+    import io
+    jobs = await sxs_list_jobs(batch=batch)
+    axes = [
+        "prompt_adherence", "visual_quality", "motion_physics",
+        "temporal_consistency", "audio_visual_sync",
+    ]
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        ["job_id", "customer", "case_id", "modality", "prompt", "model_key", "model"]
+        + [a + "_score" for a in axes]
+        + ["overall_score", "critical_flaws"]
+    )
+    for j in jobs:
+        evals = j.get("auto_evals", {}) or {}
+        for model_key, rep in evals.items():
+            row = [
+                j.get("id"), j.get("customer"), j.get("prompt_id"),
+                j.get("modality"), (j.get("prompt") or "")[:500], model_key,
+                (rep.get("model") or ""),
+            ]
+            for a in axes:
+                ax = rep.get(a) or {}
+                row.append(ax.get("score") if isinstance(ax, dict) else "")
+            row.append(rep.get("overall_score"))
+            row.append(" | ".join(rep.get("critical_flaws") or []))
+            writer.writerow(row)
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=sxs_ai_ratings.csv"},
+    )
+
+
+@app.get("/api/sxs/pair")
+async def sxs_pair():
+    """Return a random Seedance-vs-Omni pair from the isolated SxS test DB for
+    human voting. AI eval is fetched separately (only after a vote is cast)."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    docs = list(db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream())
+
+    def _u(res):
+        u = res.get("url") or (res.get("result") or {}).get("url")
+        if u and (u.startswith("gs://") or "storage.googleapis.com" in u):
+            return get_signed_url(normalize_gcs_url(u))
+        return u
+
+    candidates = []
+    for doc in docs:
+        d = doc.to_dict()
+        d["id"] = doc.id
+        succ = {
+            k: r for k, r in (d.get("results") or {}).items()
+            if isinstance(r, dict) and r.get("status") == "success"
+            and (r.get("url") or (r.get("result") or {}).get("url"))
+        }
+        if len(succ) >= 2:
+            candidates.append((d, succ))
+
+    if not candidates:
+        return {"status": "error", "message": "No SxS pairs ready for voting"}
+
+    d, succ = random.choice(candidates)
+    keys = list(succ.keys())
+    random.shuffle(keys)
+    a, b = keys[0], keys[1]
+
+    def _sign(u):
+        if u and (u.startswith("gs://") or "storage.googleapis.com" in u):
+            return get_signed_url(normalize_gcs_url(u))
+        return u
+
+    return {
+        "job_id": d["id"],
+        "prompt": d.get("prompt"),
+        "customer": d.get("customer"),
+        "modality": d.get("modality"),
+        "ratio": d.get("ratio", "16:9"),
+        "reference_images": [_sign(u) for u in (d.get("reference_images") or [])],
+        "reference_videos": [_sign(u) for u in (d.get("reference_videos") or [])],
+        "variant_a": {"model_id": a, "url": _u(succ[a])},
+        "variant_b": {"model_id": b, "url": _u(succ[b])},
+    }
+
+
+class SxsVoteRequest(BaseModel):
+    job_id: str
+    winner_side: str
+    winner_model: str
+    loser_model: str
+    scores: Dict[str, int] = {}
+    justification: str = ""
+    ldap: str = "anonymous"
+
+
+def _case_key(case: dict) -> str:
+    """Stable identity for a case (used for dedup across runs)."""
+    return f"{(case.get('customer') or '').strip()}|{(case.get('id') or case.get('prompt_id') or '').strip()}"
+
+
+def _job_status(j: dict) -> str:
+    """Classify an SxS job: 'done' (both models produced video), 'failed'
+    (≥1 model errored / produced no result), or 'in_progress'."""
+    results = j.get("results") or {}
+    if not results:
+        return "in_progress"
+    statuses = [r.get("status") for r in results.values() if isinstance(r, dict)]
+    success = sum(1 for s in statuses if s == "success")
+    errored = sum(1 for s in statuses if s == "error")
+    aes = j.get("auto_eval_status")
+    if success >= len(results) and success >= 2:
+        return "done"  # every model (both) produced a result
+    if errored > 0 and aes in ("done", "error"):
+        return "failed"  # at least one API produced no result, generation settled
+    return "in_progress"
+
+
+def _already_run_keys(db) -> Dict[str, str]:
+    """Map case_key -> status across existing jobs. Only 'done' (both models
+    produced video) is skipped on re-run; 'failed' and 'in_progress' remain
+    re-runnable so a missing API result can be retried."""
+    rank = {"in_progress": 0, "failed": 1, "done": 2}
+    out: Dict[str, str] = {}
+    for d in db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream():
+        j = d.to_dict()
+        key = f"{(j.get('customer') or '').strip()}|{(j.get('prompt_id') or '').strip()}"
+        st = _job_status(j)
+        if rank[st] >= rank.get(out.get(key, "in_progress"), 0):
+            out[key] = st
+    return out
+
+
+def _load_cases_from_gcs(cases_uri: str) -> list:
+    """Download + parse a cases JSON stored in GCS (gs:// or https URL)."""
+    from util.gcs_utils import download_blob_to_bytes
+    raw = download_blob_to_bytes(cases_uri)
+    parsed = json.loads(raw.decode("utf-8"))
+    cases = parsed.get("cases", parsed) if isinstance(parsed, dict) else parsed
+    if not isinstance(cases, list):
+        raise ValueError("cases JSON must be an array (or have a 'cases' array)")
+    return cases
+
+
+@app.get("/api/sxs/catalog")
+async def sxs_catalog(cases_uri: str = Query(...)):
+    """Return counts by customer and modality for a GCS cases JSON, so the UI
+    can offer filters before launching a (potentially large) batch."""
+    try:
+        cases = _load_cases_from_gcs(cases_uri)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to load cases: {e}")
+    customers: Dict[str, int] = {}
+    modalities: Dict[str, int] = {}
+    for c in cases:
+        cu = c.get("customer") or "—"
+        mo = c.get("modality") or c.get("mode") or "—"
+        customers[cu] = customers.get(cu, 0) + 1
+        modalities[mo] = modalities.get(mo, 0) + 1
+    return {
+        "cases_uri": cases_uri,
+        "total": len(cases),
+        "customers": dict(sorted(customers.items())),
+        "modalities": dict(sorted(modalities.items())),
+    }
+
+
+@app.post("/api/sxs/retry-failures", dependencies=[Depends(require_admin)])
+async def sxs_retry_failures(background_tasks: BackgroundTasks, limit: Optional[int] = Query(None)):
+    """Retry every case where an API failed to produce a result. Regenerates
+    only the failed model(s) per job, then re-runs the Core-5 auto-eval."""
+    from google.cloud import firestore as _fs
+    from sxs_pipeline import retry_failures
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+
+    failed_ids = []
+    for d in db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream():
+        j = d.to_dict()
+        results = j.get("results") or {}
+        statuses = [r.get("status") for r in results.values() if isinstance(r, dict)]
+        if not statuses:
+            continue
+        settled = j.get("auto_eval_status") in ("done", "error") or all(
+            s in ("success", "error") for s in statuses
+        )
+        if settled and any(s == "error" for s in statuses):
+            failed_ids.append(d.id)
+
+    if limit and limit > 0:
+        failed_ids = failed_ids[:limit]
+    if not failed_ids:
+        return {"status": "noop", "message": "No failed cases to retry", "count": 0}
+
+    background_tasks.add_task(retry_failures, failed_ids)
+    return {"status": "queued", "retrying": len(failed_ids), "job_ids": failed_ids}
+
+
+@app.post("/api/sxs/resume", dependencies=[Depends(require_admin)])
+async def sxs_resume(background_tasks: BackgroundTasks, stale_seconds: int = Query(120)):
+    """Continue from where it stopped: reprocess every pair that is NOT fully
+    done — failed pairs AND orphaned 'generating' pairs left by an interrupted
+    run. Regenerates only the missing model(s) per pair, then re-evaluates.
+    `stale_seconds` avoids touching a pair that is actively generating right now."""
+    from google.cloud import firestore as _fs
+    from sxs_pipeline import retry_failures
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+
+    cutoff = time.time() - stale_seconds
+    ids = []
+    for d in db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream():
+        j = d.to_dict()
+        if _job_status(j) == "done":
+            continue
+        # Skip pairs that look like they're mid-flight right now.
+        if _job_status(j) == "in_progress" and j.get("timestamp", 0) > cutoff:
+            continue
+        ids.append(d.id)
+
+    if not ids:
+        return {"status": "noop", "message": "Nothing incomplete to resume", "count": 0}
+    background_tasks.add_task(retry_failures, ids)
+    return {"status": "queued", "resuming": len(ids), "job_ids": ids}
+
+
+@app.post("/api/sxs/director-eval", dependencies=[Depends(require_admin)])
+async def sxs_director_eval(background_tasks: BackgroundTasks, force: bool = Query(False), limit: Optional[int] = Query(None)):
+    """Run the pairwise Creative-Director critique on completed pairs (both
+    models succeeded). By default only pairs missing `director_eval` are run."""
+    from google.cloud import firestore as _fs
+    from sxs_pipeline import director_backfill
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    ids = []
+    for d in db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream():
+        j = d.to_dict()
+        results = j.get("results") or {}
+        succ = [k for k, r in results.items() if isinstance(r, dict) and r.get("status") == "success"]
+        has_seed = any("seedance" in k for k in succ)
+        has_omni = any("omni" in k for k in succ)
+        if has_seed and has_omni and (force or not j.get("director_eval")):
+            ids.append(d.id)
+    if limit and limit > 0:
+        ids = ids[:limit]
+    if not ids:
+        return {"status": "noop", "message": "No pairs need director eval", "count": 0}
+    background_tasks.add_task(director_backfill, ids)
+    return {"status": "queued", "count": len(ids), "job_ids": ids}
+
+
+@app.post("/api/sxs/cleanup-orphans", dependencies=[Depends(require_admin)])
+async def sxs_cleanup_orphans(older_than_seconds: int = Query(120)):
+    """Delete SxS jobs that never completed (auto_eval_status != 'done') and are
+    older than the cutoff — e.g. jobs orphaned by a server restart."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    cutoff = time.time() - older_than_seconds
+    deleted = []
+    for d in db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream():
+        j = d.to_dict()
+        if j.get("auto_eval_status") != "done" and (j.get("timestamp", 0) < cutoff):
+            db.collection(SXS_COLLECTION).document(d.id).delete()
+            deleted.append(d.id)
+    return {"status": "ok", "deleted_count": len(deleted), "deleted": deleted}
+
+
+@app.get("/api/sxs/runs")
+async def sxs_runs():
+    """Run log: every batch launched + a summary of cases already done /
+    in-progress, so the user can avoid duplicate (expensive) runs."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    runs = [d.to_dict() for d in db.collection(SXS_RUNS_COLLECTION).stream()]
+    runs.sort(key=lambda r: r.get("timestamp", 0), reverse=True)
+    status_by_key = _already_run_keys(db)
+    done = sum(1 for v in status_by_key.values() if v == "done")
+    in_progress = sum(1 for v in status_by_key.values() if v == "in_progress")
+    failed = sum(1 for v in status_by_key.values() if v == "failed")
+    return {
+        "runs": runs,
+        "summary": {
+            "total_runs": len(runs),
+            "cases_done": done,
+            "cases_failed": failed,
+            "cases_in_progress": in_progress,
+            "cases_touched": len(status_by_key),
+        },
+    }
+
+
+@app.get("/api/sxs/failures")
+async def sxs_failures():
+    """List cases where either API (Seedance or Omni) did not produce a result,
+    with the per-model error so they can be retried."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    out = []
+    for d in db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream():
+        j = d.to_dict()
+        results = j.get("results") or {}
+        failed_models = [
+            {"model_key": k, "status": r.get("status"), "error": r.get("error", "")}
+            for k, r in results.items()
+            if not (isinstance(r, dict) and r.get("status") == "success")
+        ]
+        # Only report once generation has settled (not still generating).
+        statuses = [r.get("status") for r in results.values() if isinstance(r, dict)]
+        settled = j.get("auto_eval_status") in ("done", "error") or all(
+            s in ("success", "error") for s in statuses
+        )
+        if failed_models and settled:
+            out.append({
+                "job_id": d.id,
+                "batch_id": j.get("batch_id"),
+                "customer": j.get("customer"),
+                "case_id": j.get("prompt_id"),
+                "modality": j.get("modality"),
+                "failed_models": failed_models,
+            })
+    out.sort(key=lambda x: (x.get("customer") or "", x.get("case_id") or ""))
+    return {"count": len(out), "failures": out}
+
+
+class SxsGcsRunRequest(BaseModel):
+    cases_uri: str
+    customers: Optional[List[str]] = None
+    modalities: Optional[List[str]] = None
+    limit: Optional[int] = None
+    randomize: Optional[bool] = False
+    skip_existing: Optional[bool] = True  # don't re-generate cases already run
+
+
+@app.post("/api/sxs/run-gcs", dependencies=[Depends(require_admin)])
+async def sxs_run_gcs(req: SxsGcsRunRequest, background_tasks: BackgroundTasks):
+    """Load cases directly from a GCS JSON (references already gs:// URLs),
+    optionally filter by customer/modality and cap with limit, then create one
+    job per case and schedule Seedance+Omni generation + Core-5 auto-eval."""
+    from sxs_pipeline import create_sxs_job, process_batch
+
+    if not (req.cases_uri.startswith("gs://") or req.cases_uri.startswith("https://")):
+        raise HTTPException(status_code=400, detail="cases_uri must be a gs:// or https:// URL")
+    # Cap batch size — generation is expensive (Omni QPM + Gemini eval cost).
+    MAX_BATCH = 100
+    if req.limit is not None and req.limit > MAX_BATCH:
+        req.limit = MAX_BATCH
+
+    try:
+        cases = _load_cases_from_gcs(req.cases_uri)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to load cases: {e}")
+
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+
+    cust = {c.lower() for c in (req.customers or [])}
+    mods = {m.lower() for m in (req.modalities or [])}
+    selected = []
+    for c in cases:
+        if cust and (c.get("customer") or "").lower() not in cust:
+            continue
+        if mods and (c.get("modality") or c.get("mode") or "").lower() not in mods:
+            continue
+        selected.append(c)
+
+    # Dedup guard: skip cases already generated/in-progress (generation is
+    # expensive). Fully-errored cases remain re-runnable.
+    skipped_existing = 0
+    if req.skip_existing:
+        already = _already_run_keys(db)
+        fresh = [c for c in selected if already.get(_case_key(c)) != "done"]
+        skipped_existing = len(selected) - len(fresh)
+        selected = fresh
+
+    if req.randomize:
+        # Stratified random sampling across modality "categories" for variety:
+        # round-robin pick from shuffled per-modality buckets up to `limit`.
+        buckets: Dict[str, list] = {}
+        for c in selected:
+            key = (c.get("modality") or c.get("mode") or "?").upper()
+            buckets.setdefault(key, []).append(c)
+        for b in buckets.values():
+            random.shuffle(b)
+        order = list(buckets.keys())
+        random.shuffle(order)
+        target = req.limit if (req.limit and req.limit > 0) else len(selected)
+        picked = []
+        while len(picked) < target:
+            active = [k for k in order if buckets[k]]
+            if not active:
+                break
+            for k in active:
+                if len(picked) >= target:
+                    break
+                picked.append(buckets[k].pop())
+        selected = picked
+    elif req.limit and req.limit > 0:
+        selected = selected[: req.limit]
+    if not selected:
+        if skipped_existing:
+            return {
+                "status": "noop",
+                "message": f"All {skipped_existing} matching case(s) were already run — nothing new to generate.",
+                "skipped_existing": skipped_existing,
+                "count": 0,
+            }
+        raise HTTPException(status_code=400, detail="No cases matched the filters")
+
+    batch_id = f"batch_{int(time.time())}"
+    pairs = [(create_sxs_job(c, batch_id=batch_id), c) for c in selected]
+    background_tasks.add_task(process_batch, pairs)
+
+    # Persist a run-log entry so the user can see what's been launched and avoid
+    # duplicate (expensive) runs.
+    db.collection(SXS_RUNS_COLLECTION).document(batch_id).set({
+        "batch_id": batch_id,
+        "timestamp": time.time(),
+        "cases_uri": req.cases_uri,
+        "filters": {
+            "customers": req.customers or [],
+            "modalities": req.modalities or [],
+            "randomize": bool(req.randomize),
+            "limit": req.limit,
+        },
+        "launched_count": len(pairs),
+        "skipped_existing": skipped_existing,
+        "job_ids": [jid for jid, _ in pairs],
+        "case_keys": [_case_key(c) for _, c in pairs],
+    })
+
+    return {
+        "status": "queued",
+        "batch_id": batch_id,
+        "job_ids": [jid for jid, _ in pairs],
+        "count": len(pairs),
+        "skipped_existing": skipped_existing,
+    }
+
+
+@app.post("/api/admin/generate-json", dependencies=[Depends(require_admin)])
+async def admin_generate_json(
+    background_tasks: BackgroundTasks,
+    cases: UploadFile = File(...),
+    files: List[UploadFile] = File(default=[]),
+    skip_existing: bool = Query(True),
+):
+    """Admin: upload a cases JSON (+ optional asset files) and generate each case
+    on ALL active registry models whose `type` matches the case modality, then
+    run the Core-5 auto-eval. Stored in sxs_jobs (source=='sxs_auto')."""
+    from util.asset_intake import (
+        save_uploads_to_temp,
+        upload_assets_to_gcs,
+        rewrite_case_assets,
+    )
+    from sxs_pipeline import case_model_type, create_admin_job, process_admin_batch
+
+    try:
+        raw = await cases.read()
+        parsed = json.loads(raw.decode("utf-8"))
+        case_list = parsed.get("cases", parsed) if isinstance(parsed, dict) else parsed
+        if not isinstance(case_list, list) or not case_list:
+            raise ValueError("cases JSON must be a non-empty array of case objects")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid cases JSON: {e}")
+
+    batch_id = f"batch_{int(time.time())}"
+
+    # Stage uploaded asset files and push them to GCS, then rewrite relative paths.
+    uploaded = []
+    for f in files or []:
+        data = await f.read()
+        uploaded.append(type("U", (), {"filename": f.filename, "bytes": data})())
+    relpath_to_url = {}
+    if uploaded:
+        base_dir = save_uploads_to_temp(uploaded)
+        relpath_to_url = upload_assets_to_gcs(base_dir, batch_id)
+
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+
+    already = _already_run_keys(db) if skip_existing else {}
+
+    pairs = []
+    skipped_existing = 0
+    skipped_no_model = 0
+    per_case_models = {}
+    for case in case_list:
+        rewritten = rewrite_case_assets(case, relpath_to_url) if relpath_to_url else case
+        if skip_existing and already.get(_case_key(rewritten)) == "done":
+            skipped_existing += 1
+            continue
+        mtype = case_model_type(rewritten)
+        models = [
+            {"id": m.id, "provider": m.provider, "model_id": m.model_id, "type": m.type}
+            for m in registry.get_active_models() if m.type == mtype
+        ]
+        if not models:
+            skipped_no_model += 1
+            continue
+        job_id = create_admin_job(rewritten, batch_id, models)
+        pairs.append((job_id, rewritten, models))
+        per_case_models[job_id] = [m["id"] for m in models]
+
+    if pairs:
+        background_tasks.add_task(process_admin_batch, pairs)
+    jobs_manager.invalidate_cache()
+
+    # Run-log entry so the user can see what's been launched.
+    db.collection(SXS_RUNS_COLLECTION).document(batch_id).set({
+        "batch_id": batch_id,
+        "timestamp": time.time(),
+        "filters": {"origin": "admin"},
+        "launched_count": len(pairs),
+        "skipped_existing": skipped_existing,
+        "skipped_no_model": skipped_no_model,
+        "job_ids": [jid for jid, _, _ in pairs],
+        "case_keys": [_case_key(c) for _, c, _ in pairs],
+    })
+
+    return {
+        "status": "queued",
+        "batch_id": batch_id,
+        "count": len(pairs),
+        "job_ids": [jid for jid, _, _ in pairs],
+        "skipped_existing": skipped_existing,
+        "skipped_no_model": skipped_no_model,
+        "per_case_models": per_case_models,
+    }
+
+
+class TranslateRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/sxs/translate")
+async def sxs_translate(req: TranslateRequest):
+    """Translate a prompt (any language) to English with Gemini 2.5 Flash."""
+    try:
+        translation = await translate_to_english(req.text)
+        return {"status": "success", "translation": translation}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sxs/vote")
+async def sxs_vote(req: SxsVoteRequest):
+    """Store a human vote for an SxS pair in the isolated sxs_votes collection.
+
+    Idempotency guard: ignore a duplicate vote from the same evaluator on the
+    same pair within a short window (rapid double-clicks / retries)."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+
+    now = time.time()
+    dupe_window = 20  # seconds
+    for v in (
+        db.collection(SXS_VOTES_COLLECTION)
+        .where("job_id", "==", req.job_id)
+        .where("ldap", "==", req.ldap or "anonymous")
+        .stream()
+    ):
+        d = v.to_dict()
+        if (now - (d.get("timestamp") or 0)) < dupe_window:
+            return {"status": "duplicate_ignored", "vote_id": d.get("id")}
+
+    vote_id = f"sxsvote_{int(time.time()*1000)}"
+    db.collection(SXS_VOTES_COLLECTION).document(vote_id).set({
+        "id": vote_id,
+        "job_id": req.job_id,
+        "winner_side": req.winner_side,
+        "winner_model": req.winner_model,
+        "loser_model": req.loser_model,
+        "scores": req.scores,
+        "justification": req.justification,
+        "ldap": req.ldap,
+        "timestamp": time.time(),
+    })
+    return {"status": "success", "vote_id": vote_id}
+
+
+# ===================================================================
 # Tags
 # ===================================================================
-@app.post("/api/admin/generate-tags")
+@app.post("/api/admin/generate-tags", dependencies=[Depends(require_admin)])
 async def generate_tags_endpoint(request: dict):
     tags = await generate_tags_with_gemini(
         request.get("text", ""),
@@ -409,7 +1178,7 @@ async def get_all_tags():
     return {"status": "success", "tags": sorted(tags)}
 
 
-@app.post("/api/admin/backfill-tags")
+@app.post("/api/admin/backfill-tags", dependencies=[Depends(require_admin)])
 async def backfill_tags():
     """Auto-generate tags for all jobs and prompts that have no categories."""
     tagged_jobs = 0
@@ -463,7 +1232,7 @@ class SheetUpdateRequest(BaseModel):
     error: str = ""
 
 
-@app.post("/api/admin/batch/sheet/load")
+@app.post("/api/admin/batch/sheet/load", dependencies=[Depends(require_admin)])
 async def load_batch_sheet(req: SheetLoadRequest):
     try:
         data = read_sheet(req.url)
@@ -472,7 +1241,7 @@ async def load_batch_sheet(req: SheetLoadRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/admin/batch/sheet/update")
+@app.post("/api/admin/batch/sheet/update", dependencies=[Depends(require_admin)])
 async def update_batch_sheet(req: SheetUpdateRequest):
     try:
         update_sheet_row(req.url, req.row, req.success, req.error)
@@ -520,7 +1289,7 @@ async def get_admin_jobs():
     return results_list
 
 
-@app.delete("/api/admin/jobs/{job_id}")
+@app.delete("/api/admin/jobs/{job_id}", dependencies=[Depends(require_admin)])
 async def delete_job(job_id: str):
     """Delete a job from Firestore."""
     from google.cloud import firestore as _fs
@@ -534,7 +1303,7 @@ async def delete_job(job_id: str):
     return {"status": "deleted", "job_id": job_id}
 
 
-@app.post("/api/admin/jobs/{job_id}/retry")
+@app.post("/api/admin/jobs/{job_id}/retry", dependencies=[Depends(require_admin)])
 async def retry_failed_models(job_id: str, background_tasks: BackgroundTasks, include_stuck: bool = False):
     """Retry failed/error models in a job. With include_stuck=true, also retries models stuck in 'generating'."""
     from google.cloud import firestore as _fs
@@ -645,6 +1414,7 @@ class PromptRequest(BaseModel):
     reference_images: Optional[List[str]] = None
     model_ids: Optional[List[str]] = None
     mode: Optional[str] = None
+    omni_project: Optional[str] = None  # 'vital-octagon-19612' or 'cloud-llm-preview1'
 
     def __init__(self, **data):
         # Migrate legacy single-category field
@@ -702,6 +1472,15 @@ async def _run_generation_background(job_id: str, target_models: List[Registered
                     model.model_id, request.text, request.ratio,
                     request.start_image_url or request.reference_image_url,
                     request.end_image_url, request.reference_images, mode=model.type,
+                ))
+            elif model.provider == "omni":
+                img_to_pass = request.start_image_url or request.reference_image_url
+                if not img_to_pass and request.reference_images:
+                    img_to_pass = request.reference_images[0]
+                tasks.append(generate_with_omni(
+                    request.text, request.ratio, img_to_pass, model.model_id,
+                    request.reference_images, mode=model.type,
+                    project_override=request.omni_project,
                 ))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -777,7 +1556,7 @@ async def _run_generation_background(job_id: str, target_models: List[Registered
             pass
 
 
-@app.post("/api/generate")
+@app.post("/api/generate", dependencies=[Depends(require_admin)])
 async def generate_videos(request: PromptRequest, background_tasks: BackgroundTasks):
     initiation_time = time.time()
 
@@ -934,15 +1713,20 @@ async def get_random_eval_pair(
     tag: Optional[str] = None,
     search: Optional[str] = None,
     veo_anchored: bool = False,
+    source: Optional[str] = None,
 ):
     """
     Returns a random pair of successful variants for SxS evaluation.
     Supports filtering by prompt_id, tag (category), or free-text search on prompt.
     When veo_anchored=true, one side is always a Veo model.
+    When source is given (e.g. "sxs_auto"), only jobs from that source are paired.
     """
     groups = defaultdict(dict)
 
     for job in jobs_manager.jobs.values():
+        # --- Filter by source (e.g. SxS auto pipeline) ---
+        if source and getattr(job, "source", None) != source:
+            continue
         # --- Filter by tag ---
         if tag and tag.lower() not in [c.lower() for c in job.categories]:
             continue
@@ -1049,7 +1833,7 @@ async def cast_vote(req: VoteRequest):
     return {"status": "success", "vote_id": vote_id}
 
 
-@app.post("/api/admin/votes/prune")
+@app.post("/api/admin/votes/prune", dependencies=[Depends(require_admin)])
 async def prune_votes(keep: int = Query(20, ge=1)):
     """Keep only the most recent `keep` votes, delete the rest."""
     from google.cloud import firestore as _fs
@@ -1190,6 +1974,119 @@ async def get_user_leaderboard():
     return {"status": "success", "leaderboard": top_10}
 
 
+@app.get("/api/sxs/stats")
+async def sxs_stats(ldap: Optional[str] = Query(None)):
+    """Win rates / leaderboard for the isolated SxS test DB (sxs_votes + sxs_jobs).
+    Scores use the Core-5 1-5 rubric (no default-skip)."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    jobs = {
+        d.id: d.to_dict()
+        for d in db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream()
+    }
+    votes = [d.to_dict() for d in db.collection(SXS_VOTES_COLLECTION).stream()]
+
+    def _mode_of(job):
+        if not job:
+            return "T2V"
+        mod = (job.get("modality") or "").upper()
+        if "R2V" in mod or "REF" in mod or "V2V" in mod or job.get("reference_videos"):
+            return "R2V"
+        if "I2V" in mod or job.get("reference_images"):
+            return "I2V"
+        return "T2V"
+
+    def _compute(v_list):
+        skus = {}
+        modes = {"T2V": 0, "I2V": 0, "R2V": 0}
+        model_lat = {}
+        for job in jobs.values():
+            for mid, res in (job.get("results") or {}).items():
+                if isinstance(res, dict) and res.get("status") == "success" and "latency" in res:
+                    model_lat.setdefault(mid, {"sum": 0, "count": 0})
+                    model_lat[mid]["sum"] += res["latency"]
+                    model_lat[mid]["count"] += 1
+
+        for vote in v_list:
+            job = jobs.get(vote.get("job_id"))
+            mode = _mode_of(job)
+            modes[mode] += 1
+            wm, lm = vote.get("winner_model"), vote.get("loser_model")
+            for mid in (wm, lm):
+                if mid and mid not in skus:
+                    skus[mid] = {
+                        "global": {"wins": 0, "total": 0},
+                        "T2V": {"wins": 0, "total": 0, "scores": []},
+                        "I2V": {"wins": 0, "total": 0, "scores": []},
+                        "R2V": {"wins": 0, "total": 0, "scores": []},
+                    }
+            if wm:
+                skus[wm]["global"]["wins"] += 1
+                skus[wm]["global"]["total"] += 1
+                skus[wm][mode]["wins"] += 1
+                skus[wm][mode]["total"] += 1
+                if vote.get("scores"):
+                    skus[wm][mode]["scores"].append(vote["scores"])
+            if lm:
+                skus[lm]["global"]["total"] += 1
+                skus[lm][mode]["total"] += 1
+
+        def avg_scores(score_list):
+            if not score_list:
+                return {}
+            sums, counts = {}, {}
+            for s in score_list:
+                for k, v in s.items():
+                    # 3 is the slider default on the 1-5 scale → treat as "not
+                    # actively rated" and exclude from averages / spider chart.
+                    if v == 3:
+                        continue
+                    sums[k] = sums.get(k, 0) + v
+                    counts[k] = counts.get(k, 0) + 1
+            return {k: round(sums[k] / counts[k], 2) for k in sums if counts.get(k)}
+
+        leaderboard = []
+        for mid, data in skus.items():
+            g = data["global"]
+            gr = (g["wins"] / g["total"]) * 100 if g["total"] else 0
+            lps = round(model_lat[mid]["sum"] / model_lat[mid]["count"], 2) if mid in model_lat and model_lat[mid]["count"] else 0
+            entry = {"model_id": mid, "win_rate": round(gr, 1), "wins": g["wins"], "total": g["total"], "latency_ps": lps}
+            for m in ("T2V", "I2V", "R2V"):
+                mk = m.lower()
+                d = data[m]
+                r = (d["wins"] / d["total"]) * 100 if d["total"] else 0
+                entry[f"{mk}_rate"] = round(r, 1)
+                entry[f"{mk}_total"] = d["total"]
+                entry[f"{mk}_wins"] = d["wins"]
+                entry[f"{mk}_scores"] = avg_scores(d["scores"])
+            leaderboard.append(entry)
+
+        return {
+            "total_evals": len(v_list),
+            "modes": modes,
+            "skus": sorted(leaderboard, key=lambda x: x["win_rate"], reverse=True),
+        }
+
+    result = {"global": _compute(votes)}
+    if ldap:
+        result["user"] = _compute([v for v in votes if v.get("ldap", "anonymous") == ldap])
+    return result
+
+
+@app.get("/api/sxs/leaderboard/users")
+async def sxs_user_leaderboard():
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    counts = Counter()
+    for d in db.collection(SXS_VOTES_COLLECTION).stream():
+        v = d.to_dict()
+        ld = v.get("ldap", "")
+        if ld and ld != "anonymous":
+            counts[ld] += 1
+    top_10 = sorted([{"ldap": k, "count": v} for k, v in counts.items()], key=lambda x: x["count"], reverse=True)[:10]
+    return {"status": "success", "leaderboard": top_10}
+
+
 # ===================================================================
 # Health & Media Proxy
 # ===================================================================
@@ -1210,12 +2107,11 @@ async def get_media_proxy(url: str = Query(...), request: Request = None):
             fixed_url = "gs://" + fixed_url[4:]
 
         gs_uri = https_to_gs(fixed_url)
+        # SSRF guard: only proxy Google Cloud Storage objects (gs:// or the
+        # GCS HTTPS host). Reject arbitrary hosts so this endpoint can't be
+        # used as an open proxy.
         if not gs_uri.startswith("gs://"):
-            # Non-GCS URL fallback
-            import requests as req
-            resp = req.get(url, timeout=10)
-            resp.raise_for_status()
-            return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/octet-stream"))
+            raise HTTPException(status_code=400, detail="Only GCS URLs are allowed")
 
         parts = gs_uri.replace("gs://", "").split("/")
         bucket_name = parts[0]
@@ -1277,6 +2173,8 @@ async def get_media_proxy(url: str = Query(...), request: Request = None):
                 "Cache-Control": "public, max-age=3600",
             },
         )
+    except HTTPException:
+        raise  # preserve SSRF-guard 400 and other explicit statuses
     except Exception as e:
         print(f"Error proxying media {url}: {e}")
         raise HTTPException(status_code=404, detail="Failed to load media")
@@ -1285,7 +2183,7 @@ async def get_media_proxy(url: str = Query(...), request: Request = None):
 # ===================================================================
 # Google Slides generation
 # ===================================================================
-@app.post("/api/slides/generate")
+@app.post("/api/slides/generate", dependencies=[Depends(require_admin)])
 async def generate_slides(
     batches: List[str] = Query(default=[]),
     force_new: bool = Query(default=False),
@@ -1304,7 +2202,7 @@ async def generate_slides(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/slides/append/{batch_name}")
+@app.post("/api/slides/append/{batch_name}", dependencies=[Depends(require_admin)])
 async def append_slides_for_batch(batch_name: str):
     """Append a single batch to the existing Google Slides presentation."""
     from generate_google_slides import append_batch_slides
@@ -1330,7 +2228,7 @@ async def serve_slideware():
         return HTMLResponse(content=f.read())
 
 
-@app.post("/api/slideware/regenerate")
+@app.post("/api/slideware/regenerate", dependencies=[Depends(require_admin)])
 async def regenerate_slideware():
     """Regenerate the slideware HTML from current Firestore data."""
     from generate_slideware import fetch_jobs, generate_presentation
@@ -1341,7 +2239,7 @@ async def regenerate_slideware():
     raise HTTPException(status_code=500, detail="No slides generated — no successful videos found")
 
 
-@app.post("/api/slideware/pptx")
+@app.post("/api/slideware/pptx", dependencies=[Depends(require_admin)])
 async def generate_pptx_endpoint(batches: List[str] = Query(default=[])):
     """Generate and download a PPTX with embedded videos for specified batches."""
     from generate_pptx import generate_pptx
@@ -1401,7 +2299,7 @@ async def get_slideware_feedback():
     return feedback
 
 
-@app.post("/api/slideware/feedback/pick")
+@app.post("/api/slideware/feedback/pick", dependencies=[Depends(require_admin)])
 async def set_best_video(body: SlideFeedback):
     """Set the best video pick for a batch+tier."""
     from google.cloud import firestore as _fs
@@ -1416,7 +2314,7 @@ async def set_best_video(body: SlideFeedback):
     return {"status": "ok"}
 
 
-@app.post("/api/slideware/feedback/comment")
+@app.post("/api/slideware/feedback/comment", dependencies=[Depends(require_admin)])
 async def add_comment(body: SlideFeedback):
     """Add a comment to a batch+tier."""
     from google.cloud import firestore as _fs

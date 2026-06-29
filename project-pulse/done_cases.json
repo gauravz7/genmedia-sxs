@@ -1,0 +1,490 @@
+[
+  {
+    "customer": "canva",
+    "id": "I2V-BALLOON",
+    "prompt": "A single bright red helium balloon with a long white string drifting slowly upward in a pure white minimalist studio under clean high-key lighting, the balloon casting a faint soft circular shadow on the white floor below as it rises, eventually pressing gently against the white ceiling, fully locked-off camera.",
+    "modality": "i2v",
+    "reference_images": [
+      "gs://project-pulse/sxs/outputs/i2v/inputs_cached/I2V-BALLOON_input.jpg"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": "8"
+  },
+  {
+    "customer": "canva",
+    "id": "I2V-ORBITSCULPTURE",
+    "prompt": "Smooth continuous clockwise orbit around the sculpture at eye level, completing a 180° arc. As the camera moves from the lit side to the shadow side and back, the lighting and shadow on the marble surface change correctly - highlights shift, shadow patterns rotate on the wall.",
+    "modality": "i2v",
+    "reference_images": [
+      "gs://project-pulse/sxs/outputs/i2v/inputs_cached/I2V-ORBITSCULPTURE_input.jpg"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": "8"
+  },
+  {
+    "customer": "canva",
+    "id": "I2V-RIPPLE",
+    "prompt": "A single stone hits the water at centre-frame, and concentric ripples expand outward across the surface, distorting the mountain reflection. Everything else - peaks, sky, shoreline - remains completely static. Locked wide shot.",
+    "modality": "i2v",
+    "reference_images": [
+      "gs://project-pulse/sxs/outputs/i2v/inputs_cached/I2V-RIPPLE_input.jpg"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": "8"
+  },
+  {
+    "customer": "canva",
+    "id": "I2V-STILL",
+    "prompt": "Completely static - zero motion across all frames. The painting remains exactly as it appears in the source image with no animation, camera movement, or visual change of any kind.",
+    "modality": "i2v",
+    "reference_images": [
+      "gs://project-pulse/sxs/outputs/i2v/inputs_cached/I2V-STILL_input.jpg"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": "8"
+  },
+  {
+    "customer": "canva",
+    "id": "R2V-ALL-USE",
+    "prompt": "[REF_CHARACTER_A] is browsing a stall in [REF_SCENE_B] when she notices and picks up [REF_PRODUCT_A] that is sitting on the stall surface - medium shot, handheld with subtle sway, natural market lighting.",
+    "modality": "r2v",
+    "reference_images": [
+      "gs://project-pulse/sxs/outputs/r2v/inputs_cached/R2V-ALL-USE_ref_0.jpg",
+      "gs://project-pulse/sxs/outputs/r2v/inputs_cached/R2V-ALL-USE_ref_1.jpg",
+      "gs://project-pulse/sxs/outputs/r2v/inputs_cached/R2V-ALL-USE_ref_2.jpg"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": "8"
+  },
+  {
+    "customer": "canva",
+    "id": "V2V-TEXTADD",
+    "prompt": "Add a painted mural reading \"PEACE\" in large white block letters on the brick wall. The text must remain stable, legible, and correctly perspective-tracked as the camera pans past.",
+    "modality": "v2v",
+    "reference_images": [],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": "8"
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_0",
+    "prompt": "the person looks at the camera and says clearly: \"Welcome to the show.\"",
+    "modality": "audio-lipsync-single",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/audio-lipsync-single/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_10",
+    "prompt": "Camera flies along the route indicated by the red path, one continuous take. No on-screen path lines, no arrows, no jump cuts.",
+    "modality": "cc-path-05",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/cc-path-05/street_path.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_12",
+    "prompt": "render the sketched scene as realistic footage of a red sports car driving down a coastal road.",
+    "modality": "cc-sketch",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/cc-sketch/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_14",
+    "prompt": "render the sketched scene as realistic footage of a red sports car driving down a coastal road.",
+    "modality": "cc-sketch",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/cc-sketch/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_18",
+    "prompt": "the three people wave at the camera.",
+    "modality": "crowd-count",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/crowd-count/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_21",
+    "prompt": "the hand chops the carrot into slices with the knife.",
+    "modality": "hands-tool",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/hands-tool/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_26",
+    "prompt": "these two people face each other and have a short conversation.",
+    "modality": "ident-2char",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/ident-2char/reference.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_27",
+    "prompt": "this woman walks down a city street at dusk and looks at her phone.",
+    "modality": "ident-single",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/ident-single/reference.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_28",
+    "prompt": "this woman walks down a city street at dusk and looks at her phone.",
+    "modality": "ident-single",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/ident-single/reference.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_3",
+    "prompt": "follow the 4 storyboard panels in order as a short multi-shot video.",
+    "modality": "cc-beatsheet",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/cc-beatsheet/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_31",
+    "prompt": "the person raises their right hand and the reflection follows.",
+    "modality": "mirror-reflection",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/mirror-reflection/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_33",
+    "prompt": "the apples slowly roll a short distance to the left; none leave the counter.",
+    "modality": "motion-count-preserve",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/motion-count-preserve/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_37",
+    "prompt": "the man takes off his hat with his hand and holds it; nothing else changes.",
+    "modality": "motion-instructed-change",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/motion-instructed-change/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_39",
+    "prompt": "the flag ripples in a steady breeze.",
+    "modality": "phys-cloth",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/phys-cloth/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_4",
+    "prompt": "follow the 4 storyboard panels in order as a short multi-shot video.",
+    "modality": "cc-beatsheet",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/cc-beatsheet/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_41",
+    "prompt": "the left ball rolls right and strikes the right ball, which then rolls away.",
+    "modality": "phys-collision",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/phys-collision/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_45",
+    "prompt": "the mug tips over the table edge and falls to the floor.",
+    "modality": "phys-drop",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/phys-drop/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_47",
+    "prompt": "The water pours from the pitcher into the glass until it nears the rim.",
+    "modality": "phys-pour-007",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/phys-pour-007/pour_start.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_48",
+    "prompt": "The water pours from the pitcher into the glass until it nears the rim.",
+    "modality": "phys-pour-007",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/phys-pour-007/pour_start.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_51",
+    "prompt": "the bottle slowly rotates to show its label to the camera.",
+    "modality": "text-product-label",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/text-product-label/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_55",
+    "prompt": "the camera slowly dollies past the cafe entrance; the sign stays in frame.",
+    "modality": "text-sign-dolly",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/text-sign-dolly/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_8",
+    "prompt": "a fast hyper-lapse selfie video of this person across several famous world landmarks, with hard cuts.",
+    "modality": "cc-hyperlapse",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/cc-hyperlapse/seed.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "invideo",
+    "id": "invideo_video_9",
+    "prompt": "Camera flies along the route indicated by the red path, one continuous take. No on-screen path lines, no arrows, no jump cuts.",
+    "modality": "cc-path-05",
+    "reference_images": [
+      "gs://project-pulse/sxs/invideo/inputs/cc-path-05/street_path.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "localtest",
+    "id": "smoke_t2v_1",
+    "prompt": "A neon koi fish swimming through a rainy Tokyo alley at night, cinematic. 16:9",
+    "modality": "t2v",
+    "reference_images": [],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "loveart",
+    "id": "loveart_video_27",
+    "prompt": "清晨的国际机场候机大厅里，随处可见多语言标识，错落排布在各处指引牌上。开阔的大厅里，两个孩童毫无顾忌地追逐奔跑，嬉笑打闹声。一位身着制服的空姐快步走上前，出言制止，温和提醒二人机场属于公共场合，人来人往，不宜肆意追逐喧哗。两个孩子停下脚步，脸上的嬉闹褪去几分，不好意思地低下了头。周遭行色匆匆的旅客依旧步履不停，拖着行李箱穿梭在值机口、安检通道与问询台之间。",
+    "modality": "t2v",
+    "reference_images": [],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "mihoyo",
+    "id": "cut_010（风格化）",
+    "prompt": "这是一段极具视觉爆发力的风格化奔跑起步镜头。采用好莱坞级的超低视角（Ultra-low angle）硬核跟拍，全程严密保持原图独特的“漫画网点（Halftone texture）”与“几何扁平切割”绘画质感，拒绝写实3D渲染。 画面从首帧开始，角色的脚重重踏入发光的水洼，镜头伴随极具张力的瞬间震动（Impact shake）。脚下的流体并非真实水花，而是炸裂开的高饱和度几何流体粒子（Geometric fluid particles）与青绿色的霓虹光弧。 紧接着，角色瞬间发力向前极速狂奔。伴随角色的加速，背景光影发生极具动感的“好莱坞式空间跃迁”：原本温暖的橘黄色逆光像被速度撕裂般向后飞速退去，整个环境背景在光斑的疯狂闪烁与流转中，硬切入尾帧那极具科幻速度感的青蓝色（Teal and cyan）横向流光之中。 在极速奔跑状态下，角色腿部的运动带有强烈的定格动画张力。原本溅起的流体光效在高速下被极致拉长，演化为尾帧中环绕腿部的荧光速度线（Energy speed-lines）和三角形光屑。整个过程伴有轻微的色差偏移（Chromatic aberration）与故障艺术（Glitch）抖动，光影变幻极其凌厉、前卫。",
+    "modality": "i2v mode",
+    "reference_images": [],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "opus",
+    "id": "opus_v-10_flf2v_first_&_last_frame_locked_case_1",
+    "prompt": "Slight shrug. STYLE: Stylize the image with hyper-realistic editorial portraiture, razor-sharp facial focus, dramatic chiaroscuro lighting with deep shadowed tones, and a minimal dark void background.. Keep this style consistent throughout the transition. . THEN: A fast horizontal camera pan. The view slides laterally as if scanning a continuous mural. The movement is rapid and constant, preserving the visual flow between the distinct sections. THE VIEW SLIDES TO: Shaking head.",
+    "modality": "flf2v (first & last frame locked)",
+    "reference_images": [
+      "gs://project-pulse/sxs/opus/V-10_Temporal_Consistency/FLF2V_first-last-frame-locked/case_1/ref1_OnmibOWGJopUhVxCxldl6tLyg3c.png",
+      "gs://project-pulse/sxs/opus/V-10_Temporal_Consistency/FLF2V_first-last-frame-locked/case_1/ref2_Z9qobaM9aoPN3CxpOh2lZYwFgBe.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "opus",
+    "id": "opus_v-10_flf2v_first_&_last_frame_locked_case_2",
+    "prompt": "A young woman with long dark braided hair and brown eyes, wearing a casual white t-shirt and blue jeans, standing in a commercial photography studio with a clean white seamless backdrop. Stylize the image with commercial studio photography, sharp cinematic depth of field, warm practical studio lighting, and glossy high-definition digital textures. Keep this style consistent throughout the transition. THEN: The woman pulls a grey zip-up hoodie over her white t-shirt. The camera stays static, the studio background remains unchanged. THE VIEW SLIDES TO: The same woman now wearing a grey hoodie over her white t-shirt, same blue jeans, standing in the same position in the same studio.",
+    "modality": "flf2v (first & last frame locked)",
+    "reference_images": [
+      "gs://project-pulse/sxs/opus/V-10_Temporal_Consistency/FLF2V_first-last-frame-locked/case_2/ref1_T3d8btLU8oq1MgxNpeAlWNrNgZf.png",
+      "gs://project-pulse/sxs/opus/V-10_Temporal_Consistency/FLF2V_first-last-frame-locked/case_2/ref2_E6WAblHEboonNgxQXRWloI45g8b.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "opus",
+    "id": "opus_v-10_i2v_first_frame_locked_case_1",
+    "prompt": "The product in the image slowly rotates 360 degrees. The brand logo and wordmark must stay perfectly legible and consistent throughout — no morphing, no stretching, no letter distortion at any angle. 9:16 vertical.",
+    "modality": "i2v (first frame locked)",
+    "reference_images": [
+      "gs://project-pulse/sxs/opus/V-10_Temporal_Consistency/I2V_first-frame-locked/case_1/ref1_AFnobUTJuoYMggxIUHgltOffgIf.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "opus",
+    "id": "opus_v-3_ref2v_case_1",
+    "prompt": "Generate a video in the exact visual style of the uploaded image. New content: a lone fisherman in a small wooden boat slowly rows across a misty lake, his oar dipping and pulling through the water, gentle ripples spreading behind the boat. Keep the style perfectly consistent throughout — no drift toward photoreal, digital illustration, or solid colors.",
+    "modality": "ref2v",
+    "reference_images": [
+      "gs://project-pulse/sxs/opus/V-03_Style_Generation_Consistency/Ref2V/case_1/ref1_NzECblQINojjYjxJBkMl8cPpge6.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "opus",
+    "id": "opus_v-8_i2v_first_frame_locked_case_2",
+    "prompt": "A hand pushes the glass off the table. The glass falls, hits the floor, and water splashes everywhere.",
+    "modality": "i2v (first frame locked)",
+    "reference_images": [
+      "gs://project-pulse/sxs/opus/V-08_Action_Motion_and_Physics/I2V_first-frame-locked/case_2/ref1_UKLXbJVuaoVUWBxxm0PlVtUigJb.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "tencent",
+    "id": "CG怪兽表演",
+    "prompt": "让起始图中的怪兽动起来。它好奇地环顾四周，歪头、眨眼，并向前伸头看向摄像机，特写镜头到眼睛细节。保持生物设计、颜色、比例和风格化 3D 动画质感。16:9",
+    "modality": "i2v",
+    "reference_images": [
+      "gs://project-pulse/sxs/tencent/inputs_highres/i2v_monster_highres.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "tencent",
+    "id": "CG怪兽表演",
+    "prompt": "让起始图中的怪兽动起来。它好奇地环顾四周，歪头、眨眼，并向前伸头看向摄像机，特写镜头到眼睛细节。保持生物设计、颜色、比例和风格化 3D 动画质感。16:9",
+    "modality": "i2v",
+    "reference_images": [
+      "gs://project-pulse/sxs/tencent/inputs_highres/i2v_monster_highres.png"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "uitest",
+    "id": "ui_sample_1",
+    "prompt": "Slow cinematic push-in toward the subject, dust motes drifting in warm light. 16:9",
+    "modality": "i2v",
+    "reference_images": [
+      "gs://project-pulse/sxs/outputs/i2v/inputs_cached/I2V-STILL_input.jpg"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  },
+  {
+    "customer": "uitest",
+    "id": "ui_sample_2",
+    "prompt": "Gentle parallax orbit around the subject, soft natural light, ambient sound. 16:9",
+    "modality": "i2v",
+    "reference_images": [
+      "gs://project-pulse/sxs/outputs/i2v/inputs_cached/I2V-BALLOON_input.jpg"
+    ],
+    "reference_videos": [],
+    "aspect_ratio": "16:9",
+    "duration": 8
+  }
+]

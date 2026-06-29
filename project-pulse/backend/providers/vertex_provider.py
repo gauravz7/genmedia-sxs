@@ -357,3 +357,27 @@ async def generate_tags_with_gemini(prompt: str, start_image_url: str = None, en
     except Exception as e:
         print(f"Error generating tags: {e}")
         return ["🎥 3D animation", "🌿 Nature", "📷 Photorealistic"] # Fallback
+
+
+async def translate_to_english(text: str) -> str:
+    """Translate arbitrary-language text to English using Gemini 2.5 Flash.
+
+    Returns the text unchanged if it is already English. Used by the SxS
+    Translate button for quick on-screen translations of prompts.
+    """
+    if not text or not text.strip():
+        return ""
+    global _cached_creds
+    if _cached_creds is None:
+        _get_access_token()
+    client = genai.Client(vertexai=True, project=PROJECT_ID, location="us-central1", credentials=_cached_creds)
+    resp = await asyncio.to_thread(
+        client.models.generate_content,
+        model="gemini-2.5-flash",
+        contents=[
+            "Translate the following text to English. If it is already English, "
+            "return it unchanged. Output ONLY the translation — no preamble, notes, "
+            "or quotation marks.\n\n" + text
+        ],
+    )
+    return (resp.text or "").strip()
