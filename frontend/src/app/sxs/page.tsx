@@ -368,7 +368,7 @@ export default function SxSStudio() {
 
       <Nav active="sxs" />
 
-      <main className="max-w-screen-2xl mx-auto px-6 pt-32 pb-20 relative z-10">
+      <main className="max-w-screen-2xl mx-auto px-6 pt-8 pb-20 relative z-10">
         {/* Header */}
         <section className="mb-12 animate-in fade-in slide-in-from-top-4 duration-1000">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-black uppercase tracking-widest mb-4">

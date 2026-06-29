@@ -246,7 +246,7 @@ export default function VideoSxSArena() {
       )}
 
       {/* Sub-toolbar: search / tag filter (left) + VoteProgress HUD (right) */}
-      <div className="fixed w-full top-[73px] border-b border-white/5 bg-[#020408]/60 backdrop-blur-2xl z-40">
+      <div className="w-full border-b border-white/5 bg-[#020408]/60 backdrop-blur-2xl z-40">
         <div className="max-w-screen-2xl mx-auto px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 flex-wrap">
             <form onSubmit={(e) => { e.preventDefault(); resetVotingState(); fetchNewPair(searchPromptId); }} className="relative flex items-center group">
@@ -285,7 +285,7 @@ export default function VideoSxSArena() {
         )}
       </div>
 
-      <main className="max-w-screen-2xl mx-auto px-6 pt-40 pb-20">
+      <main className="max-w-screen-2xl mx-auto px-6 pt-8 pb-20">
         {/* Header */}
         <section className="mb-10 animate-in fade-in slide-in-from-top-4 duration-1000">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-4">

@@ -12,7 +12,7 @@ const LINKS: { id: string; label: string; href: string }[] = [
 
 export default function Nav({ active }: { active?: string }) {
   return (
-    <nav className="fixed w-full border-b border-white/5 bg-[#06080b]/70 backdrop-blur-2xl z-50">
+    <nav className="w-full border-b border-white/5 bg-[#06080b]/70 backdrop-blur-2xl z-50">
       <div className="max-w-screen-2xl mx-auto px-6 py-4 flex items-center justify-between">
         <a href="/" className="flex items-center gap-3 group">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-emerald-500 flex items-center justify-center shadow-[0_0_20px_rgba(99,102,241,0.3)] font-black text-white text-xs">

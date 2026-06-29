@@ -543,7 +543,7 @@ export default function AdminConsole() {
       <Nav active="admin" />
 
       {/* Admin sub-nav (tabs) */}
-      <nav className="fixed w-full top-[73px] border-b border-white/5 bg-[#06080b]/80 backdrop-blur-xl z-40">
+      <nav className="w-full border-b border-white/5 bg-[#06080b]/80 backdrop-blur-xl z-40">
         <div className="max-w-7xl mx-auto px-8 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3 group cursor-pointer">
             <div className="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-[2px] rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.2)]">
@@ -578,7 +578,7 @@ export default function AdminConsole() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-8 pt-44 pb-20 relative z-10">
+      <main className="max-w-7xl mx-auto px-8 pt-8 pb-20 relative z-10">
 
         {/* ============ MODEL REGISTRY ============ */}
         {activeTab === 'models' && (

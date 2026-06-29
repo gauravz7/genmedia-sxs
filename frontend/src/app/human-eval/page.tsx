@@ -331,7 +331,7 @@ export default function HumanEval() {
       )}
 
       {/* Toolbar (search / filter / progress) */}
-      <div className="fixed w-full top-[73px] border-b border-white/5 bg-[#020408]/60 backdrop-blur-2xl z-40">
+      <div className="w-full border-b border-white/5 bg-[#020408]/60 backdrop-blur-2xl z-40">
         <div className="max-w-screen-2xl mx-auto px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 flex-wrap">
             {/* Search by Prompt ID */}
@@ -393,7 +393,7 @@ export default function HumanEval() {
         )}
       </div>
 
-      <main className="max-w-screen-2xl mx-auto px-6 pt-44 pb-20">
+      <main className="max-w-screen-2xl mx-auto px-6 pt-8 pb-20">
 
         {/* Scenario Header */}
         <section className="mb-12 animate-in fade-in slide-in-from-top-4 duration-1000">

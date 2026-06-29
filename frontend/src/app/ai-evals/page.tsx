@@ -174,7 +174,7 @@ export default function AiEvals() {
 
       <Nav active="ai-evals" />
 
-      <main className="max-w-screen-2xl mx-auto px-6 pt-32 pb-20 relative z-10">
+      <main className="max-w-screen-2xl mx-auto px-6 pt-8 pb-20 relative z-10">
         {/* Header */}
         <section className="mb-10 animate-in fade-in slide-in-from-top-4 duration-1000">
           <div className="flex flex-wrap items-center justify-between gap-4 mb-4">

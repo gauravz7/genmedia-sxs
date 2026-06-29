@@ -59,7 +59,7 @@ export default function TtsSxSArena() {
       {ldap ? (
         <EvaluatePanel ldap={ldap} />
       ) : (
-        <main className="max-w-screen-2xl mx-auto px-6 pt-32 pb-20 relative z-10">
+        <main className="max-w-screen-2xl mx-auto px-6 pt-8 pb-20 relative z-10">
           <section className="mb-10 animate-in fade-in slide-in-from-top-4 duration-1000">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-black uppercase tracking-widest mb-4">
               Text-to-Speech Pipeline
@@ -219,7 +219,7 @@ function EvaluatePanel({ ldap }: { ldap: string }) {
       )}
 
       {/* Sub-toolbar: search / tag filter (left) + VoteProgress HUD (right) */}
-      <div className="fixed w-full top-[73px] border-b border-white/5 bg-[#06080b]/60 backdrop-blur-2xl z-40">
+      <div className="w-full border-b border-white/5 bg-[#06080b]/60 backdrop-blur-2xl z-40">
         <div className="max-w-screen-2xl mx-auto px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 flex-wrap">
             <form onSubmit={(e) => { e.preventDefault(); loadPair(searchPromptId); }} className="relative flex items-center group">
@@ -258,7 +258,7 @@ function EvaluatePanel({ ldap }: { ldap: string }) {
         )}
       </div>
 
-      <main className="max-w-screen-2xl mx-auto px-6 pt-40 pb-20 relative z-10">
+      <main className="max-w-screen-2xl mx-auto px-6 pt-8 pb-20 relative z-10">
         <section className="mb-8 animate-in fade-in slide-in-from-top-4 duration-1000">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-black uppercase tracking-widest mb-4">
             Text-to-Speech Pipeline

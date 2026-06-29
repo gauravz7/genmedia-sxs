@@ -104,7 +104,7 @@ export default function Analytics() {
   if (gate.checked && !gate.unlocked) {
     const pct = Math.min(100, Math.round((gate.count / gate.required) * 100));
     return (
-      <div className="min-h-screen bg-[#020408] text-white pt-32 px-6 pb-20">
+      <div className="min-h-screen bg-[#020408] text-white pt-8 px-6 pb-20">
         <Nav active="analytics" />
         <div className="max-w-2xl mx-auto text-center space-y-8 animate-in fade-in slide-in-from-bottom-6 duration-700">
           <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-[0_0_40px_rgba(99,102,241,0.4)]">
@@ -212,7 +212,7 @@ export default function Analytics() {
   const CHART_COLORS = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#60a5fa'];
 
   return (
-    <div className="min-h-screen bg-[#020408] text-white p-12 pt-32">
+    <div className="min-h-screen bg-[#020408] text-white p-12 pt-8">
       <Nav active="analytics" />
       <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-700">
         <header className="space-y-6">

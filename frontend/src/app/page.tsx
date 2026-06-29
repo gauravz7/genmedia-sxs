@@ -18,7 +18,7 @@ export default function Home() {
 
       <Nav active="home" />
 
-      <main className="max-w-screen-2xl mx-auto px-6 pt-40 pb-24 relative z-10">
+      <main className="max-w-screen-2xl mx-auto px-6 pt-8 pb-24 relative z-10">
         {/* Hero */}
         <section className="mb-16 text-center animate-in fade-in slide-in-from-top-4 duration-1000">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-black uppercase tracking-widest mb-6">
