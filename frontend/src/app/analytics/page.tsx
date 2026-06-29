@@ -27,6 +27,8 @@ export default function Analytics() {
   const [tagSearch, setTagSearch] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [globalLeaderboard, setGlobalLeaderboard] = useState<any[]>([]);
+  const [allLeaderboard, setAllLeaderboard] = useState<any[]>([]);
+  const [modTab, setModTab] = useState<"video" | "image" | "tts">("video");
   // 10-vote access gate (counts votes across video + image + tts).
   const [gate, setGate] = useState<{ checked: boolean; unlocked: boolean; count: number; required: number }>({ checked: false, unlocked: false, count: 0, required: 10 });
   const [gateLdap, setGateLdap] = useState("");
@@ -71,6 +73,10 @@ export default function Analytics() {
     fetch(`${API_BASE_URL}/api/sxs/leaderboard/users`)
       .then(res => res.json())
       .then(data => { if (data?.status === "success" && data.leaderboard) setGlobalLeaderboard(data.leaderboard); })
+      .catch(() => {});
+    fetch(`${API_BASE_URL}/api/votes/leaderboard`)
+      .then(res => res.json())
+      .then(data => { if (data?.leaderboard) setAllLeaderboard(data.leaderboard); })
       .catch(() => {});
     try {
       const savedHistory = localStorage.getItem('project_pulse_history');
@@ -274,6 +280,51 @@ export default function Analytics() {
           </div>
         </header>
 
+        {/* Modality tabs */}
+        <div className="flex items-center gap-2">
+          {([
+            { id: "video", label: "Video", icon: Clapperboard },
+            { id: "image", label: "Image", icon: ImageIcon },
+            { id: "tts", label: "TTS", icon: AudioLines },
+          ] as const).map((t) => {
+            const Icon = t.icon;
+            const active = modTab === t.id;
+            return (
+              <button key={t.id} onClick={() => setModTab(t.id)}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${active ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300" : "bg-white/5 border-white/10 text-gray-400 hover:text-white hover:border-white/20"}`}>
+                <Icon className="w-4 h-4" /> {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Top Evaluators — across ALL modalities (always visible) */}
+        <div>
+          <h3 className="text-xl font-light text-gray-500 mb-6 border-b border-white/5 pb-4 flex items-center gap-3">
+            <Crown className="w-5 h-5 text-yellow-400" /> Top Evaluators
+            <span className="text-[10px] text-gray-600 uppercase tracking-widest font-black">all modalities</span>
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {(allLeaderboard.length ? allLeaderboard : globalLeaderboard).slice(0, 10).map((user: any, idx: number) => (
+              <div key={user.ldap} className="flex items-center justify-between p-5 bg-[#0b0e14] border border-white/5 rounded-2xl">
+                <div className="flex items-center gap-4">
+                  <span className={`font-black text-xl ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : 'text-gray-600'}`}>#{idx + 1}</span>
+                  <span className="font-mono text-indigo-300">{user.ldap}</span>
+                </div>
+                <div className="flex items-center gap-2 bg-indigo-500/10 px-3 py-1.5 rounded-xl">
+                  <span className="font-black text-white">{user.count}</span>
+                  <span className="text-[10px] text-gray-500 uppercase tracking-widest">votes</span>
+                </div>
+              </div>
+            ))}
+            {allLeaderboard.length === 0 && globalLeaderboard.length === 0 && (
+              <div className="text-gray-600 text-sm italic">No votes yet.</div>
+            )}
+          </div>
+        </div>
+
+        {modTab === "video" && (
+        <>
         <div className={`grid gap-6 mx-auto ${models.length <= 2 ? 'grid-cols-1 sm:grid-cols-2 max-w-2xl' : models.length === 3 ? 'grid-cols-1 sm:grid-cols-3 max-w-4xl' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 max-w-5xl'}`}>
           {models.map(model => (
             <div key={model} className="bg-[#0b0e14] border border-white/5 rounded-[40px] p-8 text-center space-y-4">
@@ -353,62 +404,30 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Recent Evaluations & Leaderboard */}
-        <div className="pt-10 grid grid-cols-1 lg:grid-cols-2 gap-10">
-          <div>
-            <h3 className="text-xl font-light text-gray-500 mb-8 border-b border-white/5 pb-4">Your Recent Evaluations</h3>
-            <div className="space-y-4">
-              {history.map((h, i) => (
-                <div key={i} className="flex items-center justify-between p-6 bg-white/[0.02] border border-white/5 rounded-3xl">
-                  <div className="flex-1">
-                    <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 italic">Case {history.length - i}</div>
-                    <div className="text-gray-300 font-light line-clamp-1">&ldquo;{h.prompt}&rdquo;</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs font-black text-white uppercase">{h.winner === 'a' ? h.modelA : h.modelB} Won</div>
-                  </div>
+        {/* Your Recent Evaluations (video) */}
+        <div className="pt-10">
+          <h3 className="text-xl font-light text-gray-500 mb-8 border-b border-white/5 pb-4">Your Recent Evaluations</h3>
+          <div className="space-y-4">
+            {history.map((h, i) => (
+              <div key={i} className="flex items-center justify-between p-6 bg-white/[0.02] border border-white/5 rounded-3xl">
+                <div className="flex-1">
+                  <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 italic">Case {history.length - i}</div>
+                  <div className="text-gray-300 font-light line-clamp-1">&ldquo;{h.prompt}&rdquo;</div>
                 </div>
-              ))}
-            </div>
-          </div>
-          <div>
-            <h3 className="text-xl font-light text-gray-500 mb-8 border-b border-white/5 pb-4 flex items-center gap-3"><Crown className="w-5 h-5 text-yellow-400" /> Top Evaluators</h3>
-            <div className="space-y-4">
-              {globalLeaderboard.length > 0 ? globalLeaderboard.map((user, idx) => (
-                <div key={user.ldap} className="flex items-center justify-between p-6 bg-[#0b0e14] border border-white/5 rounded-3xl hover:bg-white/5 transition-colors">
-                  <div className="flex items-center gap-6">
-                    <span className={`font-black text-2xl ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : 'text-gray-600'}`}>#{idx + 1}</span>
-                    <span className="font-mono text-indigo-300 text-lg">{user.ldap}</span>
-                  </div>
-                  <div className="flex items-center gap-2 bg-indigo-500/10 px-4 py-2 rounded-xl">
-                    <span className="font-black text-white">{user.count}</span>
-                    <span className="text-[10px] text-gray-500 uppercase tracking-widest">votes</span>
-                  </div>
+                <div className="text-right">
+                  <div className="text-xs font-black text-white uppercase">{h.winner === 'a' ? h.modelA : h.modelB} Won</div>
                 </div>
-              )) : (
-                <div className="text-center py-10 text-gray-500 text-sm flex items-center justify-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-gray-400" /> Fetching...
-                </div>
-              )}
-            </div>
+              </div>
+            ))}
+            {history.length === 0 && <div className="text-gray-600 text-sm italic">No recent evaluations on this device.</div>}
           </div>
         </div>
+        </>
+        )}
 
-        {/* Image SxS Results */}
-        <div className="pt-10 border-t border-white/5 mt-8">
-          <h3 className="text-xl font-light text-gray-300 mb-6 flex items-center gap-3">
-            <ImageIcon className="w-5 h-5 text-indigo-400" /> Image SxS Results
-          </h3>
-          <ImageResults />
-        </div>
+        {modTab === "image" && <ImageResults />}
 
-        {/* TTS Results */}
-        <div className="pt-10 border-t border-white/5 mt-8">
-          <h3 className="text-xl font-light text-gray-300 mb-6 flex items-center gap-3">
-            <AudioLines className="w-5 h-5 text-indigo-400" /> TTS Results
-          </h3>
-          <TtsResults />
-        </div>
+        {modTab === "tts" && <TtsResults />}
       </div>
     </div>
   );

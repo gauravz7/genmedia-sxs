@@ -2361,6 +2361,25 @@ async def votes_count(ldap: str = Query("")):
     return {"ldap": ldap, "count": total, "required": required, "unlocked": total >= required}
 
 
+@app.get("/api/votes/leaderboard")
+async def votes_leaderboard():
+    """Top evaluators across ALL modalities (video + image + tts + legacy)."""
+    from collections import Counter
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    counts: Counter = Counter()
+    for coll in (SXS_VOTES_COLLECTION, "image_votes", "tts_votes", "votes"):
+        try:
+            for d in db.collection(coll).stream():
+                ld = (d.to_dict() or {}).get("ldap")
+                if ld and str(ld).lower() not in ("anonymous", "global"):
+                    counts[str(ld)] += 1
+        except Exception:
+            pass
+    leaderboard = [{"ldap": k, "count": v} for k, v in counts.most_common(50)]
+    return {"status": "success", "leaderboard": leaderboard}
+
+
 # ===================================================================
 # Image & TTS SxS modalities (self-contained routers, isolated collections)
 # Registered BEFORE the static catch-all mount so /api/* paths win.

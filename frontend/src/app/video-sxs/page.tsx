@@ -70,7 +70,8 @@ export default function VideoSxSArena() {
   useEffect(() => {
     setMounted(true);
     const saved = typeof window !== "undefined" ? (localStorage.getItem("project_pulse_ldap") || localStorage.getItem("pp_ldap")) : "";
-    if (saved) setLdap(saved);
+    // Always show the "enter arena" gate; prefill the last-used ldap for one-click entry.
+    if (saved) setLdapInput(saved);
   }, []);
 
   useEffect(() => {
