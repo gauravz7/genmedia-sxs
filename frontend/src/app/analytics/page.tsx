@@ -149,7 +149,7 @@ export default function Analytics() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4">
             {[
-              { href: "/human-eval", label: "Video Eval", icon: Clapperboard },
+              { href: "/video-sxs", label: "Video Eval", icon: Clapperboard },
               { href: "/image-sxs", label: "Image Eval", icon: ImageIcon },
               { href: "/tts-sxs", label: "TTS Eval", icon: AudioLines },
             ].map((a) => {
@@ -228,7 +228,7 @@ export default function Analytics() {
               <h1 className="text-5xl font-black italic tracking-tighter mb-4">BENCHMARK <span className="text-indigo-500">RESULTS</span></h1>
               <p className="text-gray-500 text-lg font-light">Aggregated SxS performance synthesis.</p>
             </div>
-            <a href="/human-eval" className="px-6 py-3 bg-white text-[#020408] rounded-2xl font-black uppercase text-sm shadow-3xl hover:scale-105 transition-all">Back to Arena</a>
+            <a href="/video-sxs" className="px-6 py-3 bg-white text-[#020408] rounded-2xl font-black uppercase text-sm shadow-3xl hover:scale-105 transition-all">Back to Arena</a>
           </div>
 
           {/* Tag Filter Bar */}

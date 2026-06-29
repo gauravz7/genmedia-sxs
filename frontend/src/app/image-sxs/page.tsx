@@ -120,7 +120,7 @@ function BlindEvalPanel({ ldap }: { ldap: string }) {
   const [pair, setPair] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [scores, setScores] = useState<Record<string, number>>({});
+  const [scores, setScores] = useState<Record<string, Record<string, number>>>({ A: {}, B: {} });
   const [justification, setJustification] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [reveal, setReveal] = useState<any>(null);
@@ -139,7 +139,7 @@ function BlindEvalPanel({ ldap }: { ldap: string }) {
   const metrics = isI2I ? [...T2I_METRICS, I2I_EXTRA] : T2I_METRICS;
 
   const loadPair = useCallback(async (forcePromptId?: string, forceTag?: string, forceSearch?: string) => {
-    setLoading(true); setError(""); setReveal(null); setScores({}); setJustification("");
+    setLoading(true); setError(""); setReveal(null); setScores({ A: {}, B: {} }); setJustification("");
     try {
       // `undefined` → fall back to current state; an explicit string (incl. "") overrides.
       const tag = forceTag ?? activeTag;
@@ -167,7 +167,8 @@ function BlindEvalPanel({ ldap }: { ldap: string }) {
 
   useEffect(() => { loadPair(); fetchTags(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  const setMetric = (m: string, v: number) => setScores((s) => ({ ...s, [m]: v }));
+  const setMetric = (side: string, m: string, v: number) =>
+    setScores((s) => ({ ...s, [side]: { ...s[side], [m]: v } }));
 
   const handleSkip = () => { setReveal(null); loadPair(); };
 
@@ -193,7 +194,7 @@ function BlindEvalPanel({ ldap }: { ldap: string }) {
       const res = await fetch(`${API_BASE_URL}/api/image/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: pair.job_id, winner_side: winnerSide, scores, justification, ldap: ldap || "anonymous" }),
+        body: JSON.stringify({ job_id: pair.job_id, winner_side: winnerSide, scores: winnerSide === "B" ? scores.B : scores.A, scores_a: scores.A, scores_b: scores.B, justification, ldap: ldap || "anonymous" }),
       });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       setVoteCount((c) => c + 1);
@@ -295,10 +296,15 @@ function BlindEvalPanel({ ldap }: { ldap: string }) {
                 <p className="text-gray-200 font-light text-lg max-w-3xl">&ldquo;{pair.prompt}&rdquo;</p>
                 {pair.prompt && <TranslateButton text={pair.prompt} />}
               </div>
-              <button onClick={handleSkip} className="flex items-center gap-2 px-5 py-3 bg-red-500/5 border border-red-500/10 rounded-2xl hover:bg-red-500/10 transition-all group shrink-0">
-                <ChevronRight className="w-4 h-4 text-red-400 group-hover:translate-x-0.5 transition-transform" />
-                <span className="text-xs font-black uppercase tracking-widest text-red-400">Skip</span>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => loadPair()} className="flex items-center gap-2 px-5 py-3 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl hover:bg-indigo-500/20 transition-all group">
+                  <span className="text-xs font-black uppercase tracking-widest text-indigo-300">Next</span>
+                  <ChevronRight className="w-4 h-4 text-indigo-300 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+                <button onClick={handleSkip} className="flex items-center gap-2 px-5 py-3 bg-red-500/5 border border-red-500/10 rounded-2xl hover:bg-red-500/10 transition-all group">
+                  <span className="text-xs font-black uppercase tracking-widest text-red-400">Skip</span>
+                </button>
+              </div>
             </div>
 
             {isI2I && pair.input_image && (
@@ -324,32 +330,33 @@ function BlindEvalPanel({ ldap }: { ldap: string }) {
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={imgUrl(v?.url)} alt={`image ${side}`} onClick={() => setExpandedImage(imgUrl(v?.url) ?? null)} className="max-h-[60vh] w-auto rounded-2xl object-contain cursor-zoom-in" />
                     </div>
+                    {/* Per-metric 1–5 buttons for THIS side */}
+                    <div className="p-5 space-y-3">
+                      {metrics.map((m) => (
+                        <div key={m}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">{METRIC_LABELS[m]}</span>
+                            <span className="text-[11px] font-mono text-gray-400">{scores[side]?.[m] ?? "—"}</span>
+                          </div>
+                          <div className="flex gap-1.5">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <button key={n} type="button" onClick={() => setMetric(side, m, n)}
+                                className={`flex-1 py-1.5 rounded-lg text-[11px] font-black border transition-all ${scores[side]?.[m] === n ? "bg-indigo-500/30 border-indigo-500/50 text-indigo-200" : "bg-white/5 border-white/10 text-gray-500 hover:text-white"}`}>
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* Per-metric rating widget */}
+            {/* Winner + justification */}
             <section className="bg-[#0b0e14] border border-white/10 rounded-[32px] p-8 space-y-6">
-              <h3 className="text-sm font-black uppercase tracking-widest text-gray-400">Rate the winner (1–5 per metric)</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {metrics.map((m) => (
-                  <div key={m} className="space-y-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">{METRIC_LABELS[m]}</label>
-                      <span className="text-[11px] font-mono text-gray-400">{scores[m] ?? "—"}</span>
-                    </div>
-                    <div className="flex gap-1.5">
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <button key={n} type="button" onClick={() => setMetric(m, n)}
-                          className={`flex-1 py-1.5 rounded-lg text-[11px] font-black border transition-all ${scores[m] === n ? "bg-indigo-500/30 border-indigo-500/50 text-indigo-200" : "bg-white/5 border-white/10 text-gray-500 hover:text-white"}`}>
-                          {n}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-gray-400">Overall winner</h3>
               <textarea value={justification} onChange={(e) => setJustification(e.target.value)} placeholder="Justification (optional)"
                 className="w-full bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40" rows={2} />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
