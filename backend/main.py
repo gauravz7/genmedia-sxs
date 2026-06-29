@@ -1101,6 +1101,42 @@ async def admin_generate_json(
     }
 
 
+class SxsComposeRequest(BaseModel):
+    """A single composed video case from the admin compose-box form."""
+    id: Optional[str] = None
+    customer: Optional[str] = None
+    prompt: str
+    modality: Optional[str] = "t2v"
+    reference_images: Optional[List[str]] = None
+    reference_videos: Optional[List[str]] = None
+    aspect_ratio: Optional[str] = "16:9"
+    duration: Optional[int] = 8
+
+
+@app.post("/api/sxs/compose", dependencies=[Depends(require_admin)])
+async def sxs_compose(req: SxsComposeRequest, background_tasks: BackgroundTasks):
+    """Run a single composed video case (from the compose-box form) on the
+    active models matching its modality, then auto-eval."""
+    from sxs_pipeline import case_model_type, create_admin_job, process_admin_batch
+    case = req.dict()
+    if not case.get("id"):
+        case["id"] = f"compose_{int(time.time())}"
+    case["reference_images"] = [u for u in (case.get("reference_images") or []) if u]
+    case["reference_videos"] = [u for u in (case.get("reference_videos") or []) if u]
+    mtype = case_model_type(case)
+    models = [
+        {"id": m.id, "provider": m.provider, "model_id": m.model_id, "type": m.type}
+        for m in registry.get_active_models() if m.type == mtype
+    ]
+    if not models:
+        raise HTTPException(status_code=400, detail=f"No active models for modality '{mtype}'")
+    batch_id = f"batch_{int(time.time())}"
+    job_id = create_admin_job(case, batch_id, models)
+    background_tasks.add_task(process_admin_batch, [(job_id, case, models)])
+    return {"status": "queued", "batch_id": batch_id, "job_ids": [job_id], "count": 1,
+            "models": [m["id"] for m in models]}
+
+
 class TranslateRequest(BaseModel):
     text: str
 

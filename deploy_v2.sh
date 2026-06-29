@@ -20,6 +20,8 @@ gcloud run deploy "$SERVICE" \
   --cpu 4 \
   --timeout 3600 \
   --concurrency 20 \
+  --no-cpu-throttling \
+  --min-instances 1 \
   --set-env-vars "GCP_PROJECT_ID=${PROJECT},GCS_BUCKET_NAME=project-pulse,OMNI_PROJECT=cloud-llm-preview1,EVAL_PROJECT=cloud-llm-preview1,EVAL_LOCATION=global,ADMIN_USER=admin" \
   --set-secrets "FAL_KEY=FAL_KEY:latest,ADMIN_PASS=ADMIN_PASS:latest,ELEVENLABS_API_KEY=ELEVENLABS_API_KEY:latest"
 

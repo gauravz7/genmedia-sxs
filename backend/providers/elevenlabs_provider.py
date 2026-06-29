@@ -31,6 +31,7 @@ import requests
 from dotenv import load_dotenv
 
 from util.gcs_utils import upload_from_bytes
+from util.ratelimit import retry as _retry
 
 load_dotenv()
 
@@ -190,15 +191,15 @@ def _synthesize(text: str, voice_id: str, speakers: Optional[List[dict]], style_
     back to multilingual_v2 (tags stripped, single voice). Returns
     (audio_bytes, model_used)."""
     turns = _parse_turns(text, speakers) if speakers else []
-    # Primary: Eleven v3
+    # Primary: Eleven v3 (retried on 429/5xx with backoff)
     try:
         if len(turns) >= 2 and PRIMARY_MODEL == "eleven_v3":
-            return _post_dialogue(turns, PRIMARY_MODEL, style_prompt), f"{PRIMARY_MODEL} (dialogue)"
-        return _post_tts(voice_id, text, PRIMARY_MODEL, style_prompt), PRIMARY_MODEL
+            return _retry(lambda: _post_dialogue(turns, PRIMARY_MODEL, style_prompt)), f"{PRIMARY_MODEL} (dialogue)"
+        return _retry(lambda: _post_tts(voice_id, text, PRIMARY_MODEL, style_prompt)), PRIMARY_MODEL
     except Exception as primary_err:
         # Fallback: multilingual_v2 (no tags, single voice convert)
         try:
-            return _post_tts(voice_id, _strip_tags(text), FALLBACK_MODEL, style_prompt), FALLBACK_MODEL
+            return _retry(lambda: _post_tts(voice_id, _strip_tags(text), FALLBACK_MODEL, style_prompt)), FALLBACK_MODEL
         except Exception:
             raise primary_err
 

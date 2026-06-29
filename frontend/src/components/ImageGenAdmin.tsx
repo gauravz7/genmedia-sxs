@@ -62,6 +62,13 @@ export default function ImageGenAdmin() {
   const [isPolling, setIsPolling] = useState(false);
   const [matchups, setMatchups] = useState<Matchup[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Compose-a-case box form
+  const [cPrompt, setCPrompt] = useState("");
+  const [cMode, setCMode] = useState<"t2i" | "i2i">("t2i");
+  const [cInputImage, setCInputImage] = useState("");
+  const [cMatchup, setCMatchup] = useState("");
+  const [composing, setComposing] = useState(false);
+  const [composeMsg, setComposeMsg] = useState("");
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/image/matchups`)
@@ -137,8 +144,72 @@ export default function ImageGenAdmin() {
     } finally { setIsUploading(false); }
   };
 
+  const runCompose = async () => {
+    if (!cPrompt.trim() || composing) return;
+    if (cMode === "i2i" && !cInputImage.trim()) { setComposeMsg("i2i needs an input_image URL"); return; }
+    setComposing(true); setComposeMsg("");
+    try {
+      const body: any = { prompt: cPrompt, mode: cMode };
+      if (cInputImage.trim()) body.input_image = cInputImage.trim();
+      if (cMatchup) body.matchup = cMatchup;
+      const res = await adminFetch(`${API_BASE_URL}/api/image/compose`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.detail || `Server responded ${res.status}`);
+      setComposeMsg(`Queued ✓ (batch ${data.batch_id})`);
+      if (data.batch_id) { setBatchId(data.batch_id); setJobs([]); }
+      setCPrompt("");
+    } catch (err: any) {
+      setComposeMsg(err?.message || "Compose failed");
+    } finally { setComposing(false); }
+  };
+
   return (
     <div className="space-y-8">
+      {/* Compose a case (box form) */}
+      <section className="bg-[#0b0e14] border border-white/10 rounded-[32px] p-6 md:p-8 space-y-5">
+        <h2 className="text-xl font-light text-white flex items-center gap-3">
+          <span className="w-2 h-6 bg-indigo-500 rounded-full"></span> Compose an Image Case
+        </h2>
+        <div>
+          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-1">Prompt</label>
+          <textarea value={cPrompt} onChange={(e) => setCPrompt(e.target.value)} rows={3}
+            placeholder="A single red maple leaf on a clean white background, studio product photo…"
+            className="w-full mt-2 bg-[#06080b] border border-white/10 rounded-2xl px-5 py-4 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 transition-all resize-none" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-1">Mode</label>
+            <select value={cMode} onChange={(e) => setCMode(e.target.value as "t2i" | "i2i")}
+              className="w-full mt-2 bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">
+              <option value="t2i">t2i (text → image)</option>
+              <option value="i2i">i2i (image → image)</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-1">Matchup</label>
+            <select value={cMatchup} onChange={(e) => setCMatchup(e.target.value)}
+              className="w-full mt-2 bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">
+              <option value="">(default)</option>
+              {matchups.map((m) => (<option key={m.id} value={m.id}>{m.label || m.id}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-1">Input image URL {cMode === "i2i" ? "(required)" : "(i2i only)"}</label>
+            <input value={cInputImage} onChange={(e) => setCInputImage(e.target.value)} placeholder="gs://… or https://…"
+              className="w-full mt-2 bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-sm text-gray-200 font-mono placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40" />
+          </div>
+        </div>
+        {composeMsg && <div className="text-xs font-bold text-emerald-300">{composeMsg}</div>}
+        <button onClick={runCompose} disabled={!cPrompt.trim() || composing}
+          className="w-full bg-gradient-to-r from-indigo-500 via-purple-600 to-emerald-600 hover:from-indigo-400 hover:to-emerald-500 disabled:opacity-40 text-white font-black py-4 rounded-[24px] uppercase tracking-widest text-sm transition-all active:scale-[0.98]">
+          {composing ? "Queuing…" : "Generate + Validate"}
+        </button>
+      </section>
+
+      <div className="text-center text-[10px] font-black uppercase tracking-widest text-gray-600">— or upload a cases JSON —</div>
+
       {/* Matchup registry */}
       {matchups.length > 0 && (
         <section className="bg-white/[0.02] border border-white/5 rounded-[32px] p-6">

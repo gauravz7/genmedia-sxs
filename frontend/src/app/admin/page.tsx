@@ -70,6 +70,36 @@ export default function AdminConsole() {
   const [isJsonGenerating, setIsJsonGenerating] = useState(false);
   const [genUploadError, setGenUploadError] = useState<string>("");
   const [genResult, setGenResult] = useState<any | null>(null);
+  // Video compose-a-case box form
+  const [cvPrompt, setCvPrompt] = useState("");
+  const [cvModality, setCvModality] = useState<"t2v" | "i2v" | "r2v">("t2v");
+  const [cvRefImages, setCvRefImages] = useState("");
+  const [cvRefVideos, setCvRefVideos] = useState("");
+  const [cvRatio, setCvRatio] = useState<"16:9" | "9:16">("16:9");
+  const [cvDuration, setCvDuration] = useState(8);
+  const [cvComposing, setCvComposing] = useState(false);
+  const [cvMsg, setCvMsg] = useState("");
+
+  const runVideoCompose = async () => {
+    if (!cvPrompt.trim() || cvComposing) return;
+    const toList = (s: string) => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
+    setCvComposing(true); setCvMsg("");
+    try {
+      const body: any = {
+        prompt: cvPrompt, modality: cvModality, aspect_ratio: cvRatio, duration: cvDuration,
+        reference_images: toList(cvRefImages), reference_videos: toList(cvRefVideos),
+      };
+      const res = await adminFetch(`${API_BASE_URL}/api/sxs/compose`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.detail || `Server responded ${res.status}`);
+      setCvMsg(`Queued ✓ — ${(data.models || []).join(" + ")} (batch ${data.batch_id})`);
+      setCvPrompt("");
+    } catch (err: any) {
+      setCvMsg(err?.message || "Compose failed");
+    } finally { setCvComposing(false); }
+  };
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -667,6 +697,62 @@ export default function AdminConsole() {
                 )}
               </div>
             </div>
+
+            {/* Compose a case (box form) */}
+            <div className="bg-[#0d1017] border border-white/10 rounded-[28px] p-8 md:p-10 shadow-3xl space-y-5">
+              <h2 className="text-xl font-light text-white flex items-center gap-3">
+                <span className="w-2 h-6 bg-indigo-500 rounded-full"></span> Compose a Video Case
+              </h2>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-1">Prompt</label>
+                <textarea value={cvPrompt} onChange={(e) => setCvPrompt(e.target.value)} rows={3}
+                  placeholder="A green frog hops right onto a second lily pad, then a third…"
+                  className="w-full mt-2 bg-[#06080b] border border-white/10 rounded-2xl px-5 py-4 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 transition-all resize-none" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-1">Modality</label>
+                  <select value={cvModality} onChange={(e) => setCvModality(e.target.value as "t2v" | "i2v" | "r2v")}
+                    className="w-full mt-2 bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">
+                    <option value="t2v">t2v (text → video)</option>
+                    <option value="i2v">i2v (image → video)</option>
+                    <option value="r2v">r2v (reference → video)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-1">Aspect ratio</label>
+                  <select value={cvRatio} onChange={(e) => setCvRatio(e.target.value as "16:9" | "9:16")}
+                    className="w-full mt-2 bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">
+                    <option value="16:9">16:9</option>
+                    <option value="9:16">9:16</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-1">Duration (s)</label>
+                  <input type="number" min={4} max={15} value={cvDuration} onChange={(e) => setCvDuration(parseInt(e.target.value || "8"))}
+                    className="w-full mt-2 bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-sm text-gray-200 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/40" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-1">Reference images {cvModality !== "t2v" ? "(URLs)" : "(i2v/r2v only)"}</label>
+                  <textarea value={cvRefImages} onChange={(e) => setCvRefImages(e.target.value)} rows={2} placeholder="gs://… (one per line or comma-separated)"
+                    className="w-full mt-2 bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-xs text-gray-200 font-mono placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 resize-none" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-1">Reference videos (r2v / v2v)</label>
+                  <textarea value={cvRefVideos} onChange={(e) => setCvRefVideos(e.target.value)} rows={2} placeholder="gs://… (one per line or comma-separated)"
+                    className="w-full mt-2 bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-xs text-gray-200 font-mono placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 resize-none" />
+                </div>
+              </div>
+              {cvMsg && <div className="text-xs font-bold text-emerald-300">{cvMsg}</div>}
+              <button onClick={runVideoCompose} disabled={!cvPrompt.trim() || cvComposing}
+                className="w-full bg-gradient-to-r from-indigo-500 via-purple-600 to-emerald-600 hover:from-indigo-400 hover:to-emerald-500 disabled:opacity-40 text-white font-black py-4 rounded-[24px] uppercase tracking-widest text-sm transition-all active:scale-[0.98]">
+                {cvComposing ? "Queuing…" : "Generate + Validate"}
+              </button>
+            </div>
+
+            <div className="text-center text-[10px] font-black uppercase tracking-widest text-gray-600">— or upload a cases JSON —</div>
 
             {/* Upload card */}
             <div className="relative group">

@@ -335,12 +335,18 @@ function BlindEvalPanel({ ldap }: { ldap: string }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {metrics.map((m) => (
                   <div key={m} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-gray-300">{METRIC_LABELS[m]}</label>
-                      <span className="text-xs font-mono text-indigo-300">{scores[m] ?? 3}</span>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">{METRIC_LABELS[m]}</label>
+                      <span className="text-[11px] font-mono text-gray-400">{scores[m] ?? "—"}</span>
                     </div>
-                    <input type="range" min={1} max={5} step={1} value={scores[m] ?? 3} onChange={(e) => setMetric(m, parseInt(e.target.value))}
-                      className="w-full accent-indigo-500" />
+                    <div className="flex gap-1.5">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <button key={n} type="button" onClick={() => setMetric(m, n)}
+                          className={`flex-1 py-1.5 rounded-lg text-[11px] font-black border transition-all ${scores[m] === n ? "bg-indigo-500/30 border-indigo-500/50 text-indigo-200" : "bg-white/5 border-white/10 text-gray-500 hover:text-white"}`}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
