@@ -395,6 +395,23 @@ async def process_job(job_id: str, case: dict) -> str:
     """
     omni_key = _omni_key(case)
 
+    # Auto-tag the video case (categories) from its prompt if not already tagged.
+    try:
+        if not (case.get("categories") or case.get("tags")):
+            from providers.vertex_provider import generate_tags_with_gemini
+            tags = await generate_tags_with_gemini(
+                case.get("prompt", "") or "",
+                case.get("start_image_url"),
+                case.get("end_image_url"),
+                case.get("reference_images"),
+            )
+            if tags:
+                _get_firestore_client().collection(EVAL_COLLECTION).document(job_id).update(
+                    {"categories": tags}
+                )
+    except Exception as e:  # pragma: no cover - tagging is best-effort
+        print(f"[sxs] auto-tag failed {job_id}: {e}")
+
     seedance_res, omni_res = await asyncio.gather(
         generate_seedance(case),
         generate_omni(case),
