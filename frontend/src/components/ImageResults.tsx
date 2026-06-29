@@ -26,6 +26,20 @@ const METRIC_KEYS = IMAGE_METRICS.map((m) => m.key);
 const METRIC_LABELS: Record<string, string> = Object.fromEntries(IMAGE_METRICS.map((m) => [m.key, m.label]));
 const CHART_COLORS = ["#818cf8", "#f472b6", "#34d399", "#fbbf24", "#60a5fa"];
 
+// Clean display names for image engines (raw id -> label).
+const prettyEngine = (id: string = ""): string => {
+  const k = id.toLowerCase();
+  const tier = k.includes("-high") ? " (high)" : k.includes("-medium") ? " (medium)" : k.includes("-low") ? " (low)" : "";
+  if (k.includes("mai-image")) return "MAI-Image-2.5";
+  if (k.includes("gpt-image-2")) return `GPT-image-2${tier}`;
+  if (k.includes("gpt-image")) return `GPT-image-1${tier}`;
+  if (k.includes("flash-lite-image")) return "Gemini 3.1 Flash-Lite Image";
+  if (k.includes("flash-image")) return "Gemini 3.1 Flash Image";
+  if (k.includes("pro-image")) return "Gemini 3 Pro Image";
+  if (k.includes("instant-ramen")) return "Instant Ramen";
+  return id;
+};
+
 export default function ImageResults() {
   const [stats, setStats] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
@@ -71,7 +85,7 @@ export default function ImageResults() {
       <div className={`grid gap-6 mx-auto ${skus.length <= 2 ? "grid-cols-1 sm:grid-cols-2 max-w-2xl" : skus.length === 3 ? "grid-cols-1 sm:grid-cols-3 max-w-4xl" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 max-w-5xl"}`}>
         {skus.map((s) => (
           <div key={s.model_id} className="bg-[#0b0e14] border border-white/5 rounded-[40px] p-8 text-center space-y-4">
-            <div className="text-xs font-black text-gray-500 uppercase tracking-[0.4em] truncate">{s.model_id}</div>
+            <div className="text-xs font-black text-gray-500 uppercase tracking-[0.4em] truncate">{prettyEngine(s.model_id)}</div>
             <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-white to-gray-500">{s.win_rate}%</div>
             <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">{s.wins}/{s.total} won</div>
             {s.latency_ms ? <div className="text-[10px] text-gray-600 uppercase tracking-widest">avg {s.latency_ms}ms</div> : null}
@@ -94,7 +108,7 @@ export default function ImageResults() {
                 <RechartsTooltip contentStyle={{ backgroundColor: "#0f172a", border: "1px solid #334155", borderRadius: "12px" }} itemStyle={{ color: "#e2e8f0" }} />
                 <Legend wrapperStyle={{ fontSize: "10px" }} />
                 {radarModels.map((s, idx) => (
-                  <Radar key={s.model_id} name={s.model_id} dataKey={s.model_id} stroke={CHART_COLORS[idx]} fill={CHART_COLORS[idx]} fillOpacity={0.3} />
+                  <Radar key={s.model_id} name={prettyEngine(s.model_id)} dataKey={s.model_id} stroke={CHART_COLORS[idx]} fill={CHART_COLORS[idx]} fillOpacity={0.3} />
                 ))}
               </RadarChart>
             </ResponsiveContainer>
@@ -120,7 +134,7 @@ export default function ImageResults() {
               <tbody>
                 {skus.map((s: any) => (
                   <tr key={s.model_id} className="border-b border-white/5">
-                    <td className="py-3 px-3 text-indigo-300 font-mono text-xs">{s.model_id}</td>
+                    <td className="py-3 px-3 text-indigo-300 font-mono text-xs">{prettyEngine(s.model_id)}</td>
                     <td className="py-3 px-3 text-right text-emerald-300 font-black">{s.win_rate}%</td>
                     <td className="py-3 px-3 text-right text-gray-400 font-mono">{s.wins}/{s.total}</td>
                     <td className="py-3 px-3 text-right text-gray-500 font-mono">{s.latency_ms ? `${s.latency_ms}ms` : "—"}</td>

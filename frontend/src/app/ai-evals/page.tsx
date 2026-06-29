@@ -92,12 +92,103 @@ const mediaUrl = (u?: string): string | undefined =>
 const prettyMetric = (k: string) =>
   k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
+// ===================================================================
+// Cross-modality eval extraction — normalize video (auto_evals keyed by
+// model) and image/TTS (ai_eval with A/B sides) into one shape so a single
+// summary can aggregate across all of them.
+// ===================================================================
+interface EngineEval {
+  label: string;
+  overall: number | null;
+  metrics: Record<string, number>;
+}
+
+function extractJobEvals(job: any): { engines: EngineEval[]; winner: string | null } {
+  const mod = job._modality || "video";
+
+  if (mod === "video") {
+    const keys = new Set<string>();
+    Object.keys(job.auto_evals || {}).forEach((k) => keys.add(k));
+    Object.entries(job.results || {}).forEach(([k, r]: any) => {
+      const ok =
+        r?.url ||
+        (r?.status || "").toLowerCase().includes("success") ||
+        (r?.status || "").toLowerCase().includes("complete");
+      if (ok) keys.add(k);
+    });
+    const engines: EngineEval[] = [];
+    let bestO: number | null = null;
+    let winner: string | null = null;
+    let tie = false;
+    Array.from(keys).forEach((k) => {
+      const ev = job.auto_evals?.[k];
+      const overall = typeof ev?.overall_score === "number" ? ev.overall_score : null;
+      const metrics: Record<string, number> = {};
+      AXES.forEach((a) => {
+        const s = axisScore(ev, a.key);
+        if (s != null) metrics[a.label] = s;
+      });
+      const label = prettyModel(k);
+      engines.push({ label, overall, metrics });
+      if (overall != null) {
+        if (bestO == null || overall > bestO) { bestO = overall; winner = label; tie = false; }
+        else if (overall === bestO) tie = true;
+      }
+    });
+    return { engines, winner: tie ? null : winner };
+  }
+
+  // image / tts — ai_eval has A/B sides
+  const ai = job.ai_eval || {};
+  const sides = ["A", "B"];
+  const metricKeys: string[] =
+    Array.isArray(ai.metrics) && ai.metrics.length
+      ? ai.metrics
+      : Array.from(
+          new Set(
+            sides.flatMap((s) =>
+              Object.keys(ai[s] || {}).filter((k) => typeof ai[s][k] === "number" && k !== "overall_score")
+            )
+          )
+        );
+  const engines: EngineEval[] = [];
+  sides.forEach((s) => {
+    const ev = ai[s] || {};
+    const result = job.results?.[s] || {};
+    const label = prettyModel(job.side_map?.[s] || result.model || result.engine || s);
+    const overall = typeof ev.overall_score === "number" ? ev.overall_score : null;
+    const metrics: Record<string, number> = {};
+    metricKeys.forEach((k) => { if (typeof ev[k] === "number") metrics[prettyMetric(k)] = ev[k]; });
+    if (overall != null || Object.keys(metrics).length || result.url) engines.push({ label, overall, metrics });
+  });
+  const winnerSide = (ai.winner_side || "").toUpperCase();
+  let winner: string | null = null;
+  if (ai.winner_engine) winner = prettyModel(ai.winner_engine);
+  else if (winnerSide === "A" || winnerSide === "B") {
+    const result = job.results?.[winnerSide] || {};
+    winner = prettyModel(job.side_map?.[winnerSide] || result.model || result.engine || winnerSide);
+  }
+  return { engines, winner };
+}
+
+// Tags for filtering: customer + categories/tags + language (modality has its own tabs).
+function jobTags(job: any): string[] {
+  const t = new Set<string>();
+  const add = (v: any) => { if (v != null && String(v).trim()) t.add(String(v).trim()); };
+  add(job.customer);
+  const cats = job.categories || job.tags || [];
+  (Array.isArray(cats) ? cats : [cats]).forEach(add);
+  add(job.language);
+  return Array.from(t);
+}
+
 export default function AiEvals() {
   const [jobs, setJobs] = useState<RatingJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>("");
   const [filter, setFilter] = useState("");
   const [modality, setModality] = useState<"all" | "video" | "image" | "audio">("all");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   useEffect(() => {
     const load = async () => {
@@ -153,6 +244,14 @@ export default function AiEvals() {
     return c;
   }, [jobs]);
 
+  // Tag chips reflect the current modality slice (stable while toggling tags).
+  const availableTags = useMemo(() => {
+    const slice = modality === "all" ? jobs : (jobs as any[]).filter((j) => (j._modality || "video") === modality);
+    const set = new Set<string>();
+    slice.forEach((j) => jobTags(j).forEach((t) => set.add(t)));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [jobs, modality]);
+
   const filtered = useMemo(() => {
     let list = jobs as any[];
     if (modality !== "all") list = list.filter((j) => (j._modality || "video") === modality);
@@ -165,8 +264,14 @@ export default function AiEvals() {
           (j.prompt_id || j.id || "").toLowerCase().includes(q)
       );
     }
+    if (selectedTags.length) {
+      list = list.filter((j) => {
+        const tags = jobTags(j).map((t) => t.toLowerCase());
+        return selectedTags.every((t) => tags.includes(t.toLowerCase()));
+      });
+    }
     return list as RatingJob[];
-  }, [jobs, filter, modality]);
+  }, [jobs, filter, modality, selectedTags]);
 
   return (
     <div className="min-h-screen bg-[#06080b] text-gray-100 font-sans selection:bg-indigo-500/30 overflow-x-hidden">
@@ -223,7 +328,7 @@ export default function AiEvals() {
             return (
               <button
                 key={t.id}
-                onClick={() => setModality(t.id)}
+                onClick={() => { setModality(t.id); setSelectedTags([]); }}
                 className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${
                   isActive
                     ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300"
@@ -237,7 +342,7 @@ export default function AiEvals() {
         </div>
 
         {/* Filter */}
-        <div className="mb-8">
+        <div className="mb-5">
           <input
             type="text"
             value={filter}
@@ -246,6 +351,44 @@ export default function AiEvals() {
             className="w-full md:max-w-md bg-[#0b0e14] border border-white/10 rounded-2xl px-5 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
           />
         </div>
+
+        {/* Tag chips */}
+        {availableTags.length > 0 && (
+          <div className="mb-8 flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-widest text-gray-600 mr-1">Tags</span>
+            {availableTags.map((tag) => {
+              const on = selectedTags.includes(tag);
+              return (
+                <button
+                  key={tag}
+                  onClick={() =>
+                    setSelectedTags((prev) => (on ? prev.filter((t) => t !== tag) : [...prev, tag]))
+                  }
+                  className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-wide border transition-all ${
+                    on
+                      ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                      : "bg-white/5 border-white/10 text-gray-400 hover:text-white hover:border-white/20"
+                  }`}
+                >
+                  {tag}
+                </button>
+              );
+            })}
+            {selectedTags.length > 0 && (
+              <button
+                onClick={() => setSelectedTags([])}
+                className="px-3 py-1.5 rounded-full text-[10px] font-bold tracking-wide border border-white/10 text-gray-500 hover:text-white transition-all"
+              >
+                Clear ✕
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Summary across the currently-filtered AI evals */}
+        {!isLoading && !error && filtered.length > 0 && (
+          <EvalSummary jobs={filtered} modality={modality} />
+        )}
 
         {isLoading ? (
           <div className="py-40 flex flex-col items-center justify-center text-gray-500 gap-4">
@@ -272,6 +415,152 @@ export default function AiEvals() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+// ===================================================================
+// Summary — aggregates the currently-filtered AI evals into a leaderboard
+// (wins / win-rate / avg score per model) plus a per-axis/metric breakdown.
+// Works across video (Core-5) and image/TTS (per-metric) modalities.
+// ===================================================================
+function EvalSummary({ jobs, modality }: { jobs: RatingJob[]; modality: string }) {
+  const summary = useMemo(() => {
+    const board = new Map<string, { appearances: number; wins: number; scoreSum: number; scoreN: number }>();
+    const metricAgg = new Map<string, Map<string, { sum: number; n: number }>>();
+    const metricOrder: string[] = [];
+    let evaluated = 0;
+
+    jobs.forEach((job) => {
+      const { engines, winner } = extractJobEvals(job as any);
+      const hasEval = engines.some((e) => e.overall != null) || !!winner;
+      if (!hasEval) return;
+      evaluated++;
+      engines.forEach((e) => {
+        const b = board.get(e.label) || { appearances: 0, wins: 0, scoreSum: 0, scoreN: 0 };
+        b.appearances++;
+        if (e.overall != null) { b.scoreSum += e.overall; b.scoreN++; }
+        if (winner && e.label === winner) b.wins++;
+        board.set(e.label, b);
+
+        const mm = metricAgg.get(e.label) || new Map<string, { sum: number; n: number }>();
+        Object.entries(e.metrics).forEach(([k, v]) => {
+          if (!metricOrder.includes(k)) metricOrder.push(k);
+          const a = mm.get(k) || { sum: 0, n: 0 };
+          a.sum += v; a.n++; mm.set(k, a);
+        });
+        metricAgg.set(e.label, mm);
+      });
+    });
+
+    const rows = Array.from(board.entries())
+      .map(([label, b]) => ({
+        label,
+        appearances: b.appearances,
+        wins: b.wins,
+        winRate: b.appearances ? b.wins / b.appearances : 0,
+        avg: b.scoreN ? b.scoreSum / b.scoreN : null,
+      }))
+      .sort((a, b) => b.winRate - a.winRate || (b.avg ?? -1) - (a.avg ?? -1) || a.label.localeCompare(b.label));
+
+    return { evaluated, rows, metricAgg, metricOrder };
+  }, [jobs]);
+
+  if (summary.evaluated === 0) return null;
+  const top = summary.rows[0];
+  const showMetrics = modality !== "all" && summary.metricOrder.length > 0 && summary.rows.length > 0;
+
+  return (
+    <section className="mb-10 bg-[#0b0e14] border border-white/5 rounded-[40px] p-8 shadow-3xl animate-in fade-in duration-500">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-sm font-black uppercase tracking-widest text-gray-400">Summary</h2>
+        <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
+          {modality === "all" ? "All Modalities" : modality}
+        </span>
+      </div>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <StatCard label="Evals" value={String(summary.evaluated)} />
+        <StatCard label="Models" value={String(summary.rows.length)} />
+        <StatCard label="Top Model" value={top?.label ?? "—"} accent />
+        <StatCard label="Top Win Rate" value={top ? `${Math.round(top.winRate * 100)}%` : "—"} accent />
+      </div>
+
+      {/* Leaderboard */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[9px] font-black uppercase tracking-widest text-gray-500 border-b border-white/10">
+              <th className="text-left py-2 px-2">Model</th>
+              <th className="text-right py-2 px-2">Evals</th>
+              <th className="text-right py-2 px-2">Wins</th>
+              <th className="text-right py-2 px-2">Win Rate</th>
+              <th className="text-right py-2 px-2">Avg Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.rows.map((r, i) => (
+              <tr key={r.label} className="border-b border-white/[0.04] last:border-0">
+                <td className="py-2.5 px-2 font-bold text-white flex items-center gap-2">
+                  {i === 0 && <span>🏆</span>}
+                  {r.label}
+                </td>
+                <td className="py-2.5 px-2 text-right font-mono text-gray-400">{r.appearances}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-gray-400">{r.wins}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-emerald-300">{Math.round(r.winRate * 100)}%</td>
+                <td className="py-2.5 px-2 text-right font-mono text-indigo-300">{r.avg != null ? `${r.avg.toFixed(2)}/5` : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Per-axis / per-metric average breakdown (single modality only) */}
+      {showMetrics && (
+        <div className="mt-8">
+          <div className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-3">Average by Metric</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[9px] font-black uppercase tracking-widest text-gray-500 border-b border-white/10">
+                  <th className="text-left py-2 px-2">Metric</th>
+                  {summary.rows.map((r) => (
+                    <th key={r.label} className="text-right py-2 px-2">{r.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {summary.metricOrder.map((m) => (
+                  <tr key={m} className="border-b border-white/[0.04] last:border-0">
+                    <td className="py-2 px-2 text-gray-300 font-medium">{m}</td>
+                    {summary.rows.map((r) => {
+                      const a = summary.metricAgg.get(r.label)?.get(m);
+                      const avg = a && a.n ? a.sum / a.n : null;
+                      return (
+                        <td key={r.label} className="py-2 px-2 text-right font-mono text-gray-400">
+                          {avg != null ? avg.toFixed(2) : "—"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StatCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="bg-[#06080b] border border-white/5 rounded-2xl px-5 py-4">
+      <div className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1.5">{label}</div>
+      <div className={`text-xl font-black truncate ${accent ? "text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-emerald-400" : "text-white"}`}>
+        {value}
+      </div>
     </div>
   );
 }
