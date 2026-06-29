@@ -429,8 +429,17 @@ function EvalSummary({ jobs, modality }: { jobs: RatingJob[]; modality: string }
     const metricAgg = new Map<string, Map<string, { sum: number; n: number }>>();
     const metricOrder: string[] = [];
     let evaluated = 0;
+    // Creative-Director verdict aggregate (video only): verdict A→Seedance, B→Omni.
+    const directorBoard = new Map<string, number>();
+    let directorTotal = 0;
 
     jobs.forEach((job) => {
+      const de = (job as any).director_eval;
+      if (de && (de.verdict === "A" || de.verdict === "B")) {
+        directorTotal++;
+        const dl = de.verdict === "A" ? "Seedance 2.0" : "Gemini Omni";
+        directorBoard.set(dl, (directorBoard.get(dl) || 0) + 1);
+      }
       const { engines, winner } = extractJobEvals(job as any);
       const hasEval = engines.some((e) => e.overall != null) || !!winner;
       if (!hasEval) return;
@@ -459,10 +468,13 @@ function EvalSummary({ jobs, modality }: { jobs: RatingJob[]; modality: string }
         wins: b.wins,
         winRate: b.appearances ? b.wins / b.appearances : 0,
         avg: b.scoreN ? b.scoreSum / b.scoreN : null,
+        directorWins: directorBoard.get(label) || 0,
+        directorRate: directorTotal ? (directorBoard.get(label) || 0) / directorTotal : null,
       }))
       .sort((a, b) => b.winRate - a.winRate || (b.avg ?? -1) - (a.avg ?? -1) || a.label.localeCompare(b.label));
 
-    return { evaluated, rows, metricAgg, metricOrder };
+    const directorTop = Array.from(directorBoard.entries()).sort((a, b) => b[1] - a[1])[0];
+    return { evaluated, rows, metricAgg, metricOrder, directorTotal, directorTop };
   }, [jobs]);
 
   if (summary.evaluated === 0) return null;
@@ -479,11 +491,14 @@ function EvalSummary({ jobs, modality }: { jobs: RatingJob[]; modality: string }
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className={`grid grid-cols-2 ${summary.directorTotal > 0 ? "md:grid-cols-5" : "md:grid-cols-4"} gap-4 mb-8`}>
         <StatCard label="Evals" value={String(summary.evaluated)} />
         <StatCard label="Models" value={String(summary.rows.length)} />
         <StatCard label="Top Model" value={top?.label ?? "—"} accent />
         <StatCard label="Top Win Rate" value={top ? `${Math.round(top.winRate * 100)}%` : "—"} accent />
+        {summary.directorTotal > 0 && (
+          <StatCard label="🎬 Director's Pick" value={summary.directorTop ? summary.directorTop[0] : "—"} accent />
+        )}
       </div>
 
       {/* Leaderboard */}
@@ -496,6 +511,7 @@ function EvalSummary({ jobs, modality }: { jobs: RatingJob[]; modality: string }
               <th className="text-right py-2 px-2">Wins</th>
               <th className="text-right py-2 px-2">Win Rate</th>
               <th className="text-right py-2 px-2">Avg Score</th>
+              {summary.directorTotal > 0 && <th className="text-right py-2 px-2">🎬 Director</th>}
             </tr>
           </thead>
           <tbody>
@@ -509,6 +525,11 @@ function EvalSummary({ jobs, modality }: { jobs: RatingJob[]; modality: string }
                 <td className="py-2.5 px-2 text-right font-mono text-gray-400">{r.wins}</td>
                 <td className="py-2.5 px-2 text-right font-mono text-emerald-300">{Math.round(r.winRate * 100)}%</td>
                 <td className="py-2.5 px-2 text-right font-mono text-indigo-300">{r.avg != null ? `${r.avg.toFixed(2)}/5` : "—"}</td>
+                {summary.directorTotal > 0 && (
+                  <td className="py-2.5 px-2 text-right font-mono text-amber-300">
+                    {r.directorWins > 0 && r.directorRate != null ? `${Math.round(r.directorRate * 100)}% (${r.directorWins})` : "—"}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
