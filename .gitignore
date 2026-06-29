@@ -71,3 +71,7 @@ backups/
 .vscode/
 *.swp
 *.swo
+
+# local secrets / scratch
+.admin_pass.local
+*.local
