@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { API_BASE_URL, formatUrl, adminFetch, getAdminToken, setAdminToken } from "@/lib/api";
+import { API_BASE_URL, formatUrl, adminFetch, getAdminToken, setAdminToken, maskPid } from "@/lib/api";
 import Nav from "@/components/Nav";
 
 // ===================================================================
@@ -573,7 +573,7 @@ export default function SxSStudio() {
                   {cases.map((c, i) => (
                     <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
                       <td className="py-3 px-3 text-gray-300 font-medium">{c.customer ?? "—"}</td>
-                      <td className="py-3 px-3 text-indigo-300 font-mono text-xs">{c.id ?? c.prompt_id ?? "—"}</td>
+                      <td className="py-3 px-3 text-indigo-300 font-mono text-xs">{maskPid(c.id ?? c.prompt_id) || "—"}</td>
                       <td className="py-3 px-3 text-gray-400 uppercase text-xs">{c.modality ?? c.mode ?? "—"}</td>
                       <td className="py-3 px-3 text-gray-400 font-mono">{countList(c, "reference_images", "ref_images")}</td>
                       <td className="py-3 px-3 text-gray-400 font-mono">{countList(c, "reference_videos", "ref_videos")}</td>

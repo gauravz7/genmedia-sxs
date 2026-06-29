@@ -112,12 +112,21 @@ def _get_firestore_client():
 
 
 def _mode(case: dict) -> str:
-    m = str(case.get("mode") or "t2i").strip().lower()
+    # Accept both `mode` and `modality` as the t2i/i2i selector.
+    m = str(case.get("mode") or case.get("modality") or "t2i").strip().lower()
     return "i2i" if m in ("i2i", "edit", "image-to-image") else "t2i"
 
 
 def _input_image(case: dict) -> Optional[str]:
-    return case.get("input_image") or case.get("reference_image") or None
+    # Accept a single `input_image`/`reference_image`, or the first of an
+    # `input_images` array (the external eval-sheet schema).
+    single = case.get("input_image") or case.get("reference_image")
+    if single:
+        return single
+    arr = case.get("input_images")
+    if isinstance(arr, list) and arr:
+        return arr[0]
+    return None
 
 
 # --- generation: one side ---------------------------------------------------

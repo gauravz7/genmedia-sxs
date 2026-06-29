@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { API_BASE_URL, formatUrl } from "@/lib/api";
+import { API_BASE_URL, formatUrl, maskPid } from "@/lib/api";
 import Nav from "@/components/Nav";
 
 // ===================================================================
@@ -390,7 +390,7 @@ function RatingCard({ job }: { job: RatingJob }) {
             )}
             {job.prompt_id && (
               <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-500 text-[10px] font-mono">
-                {job.prompt_id}
+                {maskPid(job.prompt_id)}
               </span>
             )}
           </div>
@@ -629,7 +629,7 @@ function MediaRatingCard({ job }: { job: any }) {
               </span>
             )}
             <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-500 text-[10px] font-mono">
-              {job.prompt_id || job.id}
+              {maskPid(job.prompt_id || job.id)}
             </span>
           </div>
           <p className="text-gray-300 font-light text-base">&ldquo;{promptText}&rdquo;</p>

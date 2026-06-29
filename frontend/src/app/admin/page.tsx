@@ -7,7 +7,7 @@ import {
   PlayCircle, StopCircle, UploadCloud, X, Tag, Filter, Eye, Clock, Video,
   ChevronDown, ChevronUp, RefreshCw, Trash2, Download, Share2
 } from 'lucide-react';
-import { API_BASE_URL, formatUrl, adminFetch, getAdminToken, setAdminToken, clearAdminToken } from '@/lib/api';
+import { API_BASE_URL, formatUrl, adminFetch, getAdminToken, setAdminToken, clearAdminToken, maskPid } from '@/lib/api';
 import Nav from '@/components/Nav';
 
 const PRESET_CATEGORIES = ["Studio Shots", "Beauty", "Animation", "Model Bug Backlog"];
@@ -894,7 +894,7 @@ export default function AdminConsole() {
                         {/* Prompt Preview */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-3 mb-1">
-                            <span className="text-[10px] font-mono text-purple-400 font-bold">{job.prompt_id || job.id}</span>
+                            <span className="text-[10px] font-mono text-purple-400 font-bold">{maskPid(job.prompt_id || job.id)}</span>
                             <span className="text-[10px] text-gray-600">{job.timestamp}</span>
                             {job.ratio && <span className="text-[9px] font-bold text-purple-400 px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">{job.ratio}</span>}
                           </div>
@@ -1257,7 +1257,7 @@ function PromptItem({ prompt, onTagClick }: { prompt: Prompt; onTagClick: (tag: 
               <span className="px-2 py-1 text-[9px] font-black uppercase tracking-widest rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">{prompt.ratio}</span>
             )}
             <span className="text-[10px] text-gray-600 font-mono italic whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px]" title={prompt.prompt_id || prompt.id.toString()}>
-              {prompt.prompt_id ? `PID: ${prompt.prompt_id}` : `ID_${prompt.id.toString().slice(-4)}`}
+              {prompt.prompt_id ? `PID: ${maskPid(prompt.prompt_id)}` : `ID_${prompt.id.toString().slice(-4)}`}
             </span>
           </div>
           <p className="text-gray-200 text-lg leading-relaxed font-light line-clamp-2 break-words">&ldquo;{prompt.text}&rdquo;</p>

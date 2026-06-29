@@ -6,7 +6,7 @@ import {
   CheckCircle2, AlertCircle, Loader2, Zap, ArrowRight,
   UserCircle2, Cpu, MessageSquareQuote, Tag, Search, X, Filter
 } from 'lucide-react';
-import { API_BASE_URL, formatUrl } from '@/lib/api';
+import { API_BASE_URL, formatUrl, maskPid } from '@/lib/api';
 import Nav from '@/components/Nav';
 
 // Human-eval rubric === AI Core-5 rubric (same keys, labels, and 1–5 scale)
@@ -430,7 +430,7 @@ export default function HumanEval() {
               </h1>
               {currentEval?.prompt && <TranslateButton text={currentEval.prompt} />}
               <div className="flex items-center gap-4 text-sm text-gray-500 italic font-light">
-                <span className="flex items-center gap-2 font-mono"><UserCircle2 className="w-4 h-4" /> {currentEval?.job_id ? `PID: ${currentEval.job_id}` : "Expert Bench"}</span>
+                <span className="flex items-center gap-2 font-mono"><UserCircle2 className="w-4 h-4" /> {currentEval?.job_id ? `PID: ${maskPid(currentEval.job_id)}` : "Expert Bench"}</span>
                 <span className="w-1 h-1 rounded-full bg-gray-800"></span>
                 <span className="flex items-center gap-2"><Cpu className="w-4 h-4" /> {currentEval?.variant_a.model_id} vs {currentEval?.variant_b.model_id}</span>
               </div>
