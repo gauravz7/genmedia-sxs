@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {
+      "id": "img1",
+      "mode": "t2i",
+      "prompt": "A single red maple leaf on a clean white background, studio product photo, soft shadows",
+      "matchup": "gemini-3.1-flash-image_vs_gpt2-medium"
+    },
+    {
+      "id": "img2",
+      "mode": "t2i",
+      "prompt": "A cozy reading nook by a rain-streaked window, warm lamp light, cinematic",
+      "matchup": "gemini-3-pro-image_vs_gpt2-high"
+    },
+    {
+      "id": "img3",
+      "mode": "i2i",
+      "prompt": "Make it snow heavily and add a warm sunset glow",
+      "input_image": "refs/koi.png",
+      "matchup": "gemini-3-pro-image_vs_gpt2-high"
+    }
+  ]
+}
