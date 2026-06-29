@@ -1,13 +1,14 @@
 'use client';
-import { BarChart3, Cpu, Vote, Wand2, ShieldCheck, ArrowRight } from 'lucide-react';
+import { BarChart3, Cpu, Clapperboard, ImageIcon, AudioLines, ShieldCheck, ArrowRight } from 'lucide-react';
 import Nav from '@/components/Nav';
 
 const CARDS = [
-  { href: '/analytics', label: 'Analytics', desc: 'Aggregated SxS benchmark results, win rates, and Core-5 radar charts.', icon: BarChart3, accent: 'from-indigo-500 to-purple-600', note: '' },
-  { href: '/ai-evals', label: 'AI Evals', desc: 'Machine-generated Core-5 auto-evaluations, side by side.', icon: Cpu, accent: 'from-emerald-500 to-indigo-600', note: '' },
-  { href: '/human-eval', label: 'Human Eval', desc: 'Blind human voting arena with dimension scoring.', icon: Vote, accent: 'from-pink-500 to-purple-600', note: '' },
-  { href: '/sxs', label: 'SxS Studio', desc: 'Generate side-by-side pairs from GCS or local uploads.', icon: Wand2, accent: 'from-emerald-500 to-purple-600', note: 'admin' },
-  { href: '/admin', label: 'Admin', desc: 'Prompt engine, model registry, batch upload, and generations.', icon: ShieldCheck, accent: 'from-indigo-500 to-pink-600', note: 'admin' },
+  { href: '/human-eval', label: 'Video Eval', desc: 'Blind A/B voting for video models — Veo, Kling, Seedance — with dimension scoring.', icon: Clapperboard, accent: 'from-pink-500 to-purple-600', note: '' },
+  { href: '/image-sxs', label: 'Image Eval', desc: 'Gemini image models vs GPT-image (FAL). Text-to-image & image-edit, blind A/B + AI judge.', icon: ImageIcon, accent: 'from-emerald-500 to-indigo-600', note: '' },
+  { href: '/tts-sxs', label: 'TTS Eval', desc: 'Gemini 3.1 Flash TTS vs ElevenLabs. Full voice controls, blind audio A/B + AI judge.', icon: AudioLines, accent: 'from-amber-500 to-pink-600', note: '' },
+  { href: '/ai-evals', label: 'AI Evals', desc: 'Machine-generated auto-evaluations across every modality — video, image, and audio — in one place.', icon: Cpu, accent: 'from-emerald-500 to-indigo-600', note: '' },
+  { href: '/analytics', label: 'Analytics', desc: 'Aggregated win rates, radar charts, and leaderboards. Unlocks after you cast 10 votes.', icon: BarChart3, accent: 'from-indigo-500 to-purple-600', note: '10 votes' },
+  { href: '/admin', label: 'Admin', desc: 'Submit prompts, manage the model registry, batch upload, and run generations.', icon: ShieldCheck, accent: 'from-indigo-500 to-pink-600', note: 'admin' },
 ];
 
 export default function Home() {
@@ -28,7 +29,7 @@ export default function Home() {
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-emerald-400">Pulse</span>
           </h1>
           <p className="text-gray-400 text-base md:text-xl mt-5 font-light max-w-2xl mx-auto">
-            Seedance 2.0 vs Gemini Omni — human and AI evaluation, all in one place.
+            Video, Image &amp; Speech — blind human and AI side-by-side evaluation, all in one place.
           </p>
         </section>
 

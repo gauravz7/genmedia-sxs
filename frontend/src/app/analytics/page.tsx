@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import {
-  Crown, Filter, Search, X, Loader2,
+  Crown, Filter, Search, X, Loader2, Lock, Clapperboard, ImageIcon, AudioLines,
 } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
 import { API_BASE_URL } from '@/lib/api';
@@ -25,9 +25,11 @@ export default function Analytics() {
   const [tagSearch, setTagSearch] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [globalLeaderboard, setGlobalLeaderboard] = useState<any[]>([]);
+  // 10-vote access gate (counts votes across video + image + tts).
+  const [gate, setGate] = useState<{ checked: boolean; unlocked: boolean; count: number; required: number }>({ checked: false, unlocked: false, count: 0, required: 10 });
 
-  // ldap drives only the (omitted) user view; analytics is public → "global".
-  const ldap = (typeof window !== "undefined" && localStorage.getItem("project_pulse_ldap")) || "global";
+  // Personal ldap drives the gate. Video uses project_pulse_ldap; image/tts use pp_ldap.
+  const ldap = (typeof window !== "undefined" && (localStorage.getItem("project_pulse_ldap") || localStorage.getItem("pp_ldap"))) || "global";
 
   const fetchStats = (tag: string) => {
     setIsLoading(true);
@@ -52,6 +54,10 @@ export default function Analytics() {
       const savedHistory = localStorage.getItem('project_pulse_history');
       if (savedHistory) setHistory(JSON.parse(savedHistory));
     } catch { /* ignore */ }
+    fetch(`${API_BASE_URL}/api/votes/count?ldap=${encodeURIComponent(ldap)}`)
+      .then(res => res.json())
+      .then(data => setGate({ checked: true, unlocked: !!data?.unlocked, count: data?.count ?? 0, required: data?.required ?? 10 }))
+      .catch(() => setGate({ checked: true, unlocked: false, count: 0, required: 10 }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -73,6 +79,52 @@ export default function Analytics() {
   const filteredTags = tagSearch
     ? availableTags.filter(t => t.toLowerCase().includes(tagSearch.toLowerCase()))
     : availableTags;
+
+  if (gate.checked && !gate.unlocked) {
+    const pct = Math.min(100, Math.round((gate.count / gate.required) * 100));
+    return (
+      <div className="min-h-screen bg-[#020408] text-white pt-32 px-6 pb-20">
+        <Nav active="analytics" />
+        <div className="max-w-2xl mx-auto text-center space-y-8 animate-in fade-in slide-in-from-bottom-6 duration-700">
+          <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-[0_0_40px_rgba(99,102,241,0.4)]">
+            <Lock className="w-10 h-10 text-white" />
+          </div>
+          <div>
+            <h1 className="text-4xl md:text-5xl font-black tracking-tight">Analytics is locked</h1>
+            <p className="text-gray-400 mt-4 text-lg font-light">
+              Cast <span className="font-black text-white">{gate.required}</span> blind votes across any modality to unlock the aggregated leaderboards and radar charts.
+              {ldap === "global" && " Set your ldap on any eval page so your votes are counted."}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-gray-500">
+              <span>{ldap === "global" ? "Not signed in" : `Voting as ${ldap}`}</span>
+              <span className="text-indigo-300">{gate.count} / {gate.required} votes</span>
+            </div>
+            <div className="h-3 rounded-full bg-white/5 border border-white/10 overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 transition-all duration-700" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4">
+            {[
+              { href: "/human-eval", label: "Video Eval", icon: Clapperboard },
+              { href: "/image-sxs", label: "Image Eval", icon: ImageIcon },
+              { href: "/tts-sxs", label: "TTS Eval", icon: AudioLines },
+            ].map((a) => {
+              const Icon = a.icon;
+              return (
+                <a key={a.href} href={a.href} className="group bg-[#0b0e14] border border-white/10 rounded-2xl p-5 hover:border-indigo-500/40 transition-all flex flex-col items-center gap-3">
+                  <Icon className="w-7 h-7 text-indigo-400 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-black uppercase tracking-widest text-gray-300">{a.label}</span>
+                </a>
+              );
+            })}
+          </div>
+          <a href="/" className="inline-block text-[11px] font-black uppercase tracking-widest text-gray-500 hover:text-white transition-colors">← Back home</a>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading || !stats) {
     return (

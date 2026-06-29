@@ -33,7 +33,12 @@ def _ensure_accessible_to_fal(url: str) -> str:
             # Use fal_client.upload for bytes directly
             ext = url.split("?")[0].split(".")[-1].lower()
             content_type = "image/jpeg" if ext in ["jpg", "jpeg"] else "image/png"
-            fal_url = fal_client.upload(data, content_type=content_type, file_name=url.split("/")[-1])
+            import re as _re
+            raw_name = url.split("?")[0].split("/")[-1] or "asset.png"
+            safe_name = _re.sub(r"[^A-Za-z0-9._-]", "_", raw_name)  # fal needs ASCII names
+            if not safe_name.strip("._-"):
+                safe_name = f"asset.{ext}" if ext.isascii() else "asset.png"
+            fal_url = fal_client.upload(data, content_type=content_type, file_name=safe_name)
             return fal_url
         except Exception as e:
             print(f"Error proxying GCS URL to FAL: {e}")

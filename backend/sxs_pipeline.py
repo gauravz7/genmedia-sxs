@@ -81,7 +81,15 @@ def _image_mime(url: str) -> str:
 
 
 def _filename_from_url(url: str) -> str:
-    return os.path.basename(url.split("?")[0]) or "asset"
+    base = os.path.basename(url.split("?")[0]) or "asset"
+    # fal_client.upload requires ASCII filenames; unicode names (e.g. 图片1.png)
+    # raise "'ascii' codec can't encode". Sanitize to an ASCII-safe name while
+    # preserving the extension.
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", base)
+    if not safe.strip("._-"):
+        ext = base.rpartition(".")[2]
+        safe = f"asset.{ext}" if (ext and ext.isascii()) else "asset.png"
+    return safe
 
 
 def _seedance_duration(case: dict):

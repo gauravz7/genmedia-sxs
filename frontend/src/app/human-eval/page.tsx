@@ -22,6 +22,16 @@ const DIMENSIONS = [
   { id: 'audio_visual_sync', label: 'Audio-Visual Sync', color: 'blue' }
 ];
 
+const prettyModel = (key: string = "") => {
+  const k = key.toLowerCase();
+  if (k.includes('omni')) return 'Gemini Omni';
+  if (k.includes('seedance') && k.includes('fast')) return 'Seedance 2.0 Fast';
+  if (k.includes('seedance') || k.includes('doubao')) return 'Seedance 2.0';
+  if (k.includes('veo')) return 'Veo';
+  if (k.includes('kling')) return 'Kling';
+  return key;
+};
+
 interface EvalVariant {
   model_id: string;
   url: string;
@@ -68,6 +78,8 @@ export default function HumanEval() {
   const [veoAnchored, setVeoAnchored] = useState(false);
   // AI auto-eval reveal (shown only AFTER a human vote is cast)
   const [voteAck, setVoteAck] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false); // synchronous re-entry guard (state lags across rapid clicks)
   const [aiReveal, setAiReveal] = useState(false);
   const [aiEval, setAiEval] = useState<any>(null);
   const [aiEvalLoading, setAiEvalLoading] = useState(false);
@@ -220,7 +232,12 @@ export default function HumanEval() {
   };
 
   const handleSubmitVote = async () => {
-    if (!currentEval || !winner) return;
+    // Guard against duplicate submissions (double-click / re-entry). The ref is
+    // set synchronously so rapid clicks in the same tick can't slip through
+    // before React re-renders the disabled state.
+    if (!currentEval || !winner || submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
     const winnerModel = winner === 'a' ? currentEval.variant_a.model_id : currentEval.variant_b.model_id;
     const loserModel = winner === 'a' ? currentEval.variant_b.model_id : currentEval.variant_a.model_id;
     try {
@@ -230,29 +247,17 @@ export default function HumanEval() {
         body: JSON.stringify({ job_id: currentEval.job_id, winner_side: winner, winner_model: winnerModel, loser_model: loserModel, scores: dimScores, justification, ldap })
       });
       if (!voteRes.ok) throw new Error(`Server responded ${voteRes.status}`);
-      const voteData = await voteRes.json().catch(() => ({}));
-      // Acknowledge the registered vote.
-      setVoteAck(`Vote registered ✓ — ${winnerModel} over ${loserModel}${voteData?.vote_id ? ` (#${String(voteData.vote_id).slice(-6)})` : ""}`);
+      await voteRes.json().catch(() => ({}));
+      // Reveal the picked model name, then auto-advance to the next pair in ~1s.
+      setVoteAck(`✓ Vote registered — you picked ${prettyModel(winnerModel)} (over ${prettyModel(loserModel)})`);
       setHistory([{ prompt: currentEval.prompt, winner, scores: dimScores, justification, modelA: currentEval.variant_a.model_id, modelB: currentEval.variant_b.model_id }, ...history]);
       setVotesCount(prev => prev + 1);
-      // Reveal AI auto-eval (Core-5) for this job AFTER the human has voted.
-      setAiEvalLoading(true);
-      setAiReveal(true);
-      try {
-        const r = await fetch(`${API_BASE_URL}/api/sxs/aieval/${encodeURIComponent(currentEval.job_id)}`);
-        if (r.ok) {
-          setAiEval(await r.json());
-        } else {
-          setAiEval(null);
-        }
-      } catch {
-        setAiEval(null);
-      } finally {
-        setAiEvalLoading(false);
-      }
+      setTimeout(() => { handleNextPair(); }, 1000);
     } catch (err) {
       console.error("Failed to submit vote", err);
       setVoteAck("Vote failed to register — please try again");
+      submittingRef.current = false;
+      setIsSubmitting(false); // allow retry on failure
     }
   };
 
@@ -260,6 +265,8 @@ export default function HumanEval() {
     setVoteAck("");
     setAiReveal(false);
     setAiEval(null);
+    submittingRef.current = false;
+    setIsSubmitting(false);
     resetVotingState();
     fetchNewPair();
   };
@@ -529,8 +536,8 @@ export default function HumanEval() {
                     </div>
                     <textarea value={justification} onChange={(e) => setJustification(e.target.value)} placeholder="Provide specialized feedback on motion flow, text adherence, or specific model artifacts noticed..." className="w-full bg-[#020408] border border-white/10 rounded-3xl p-6 text-gray-300 placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/40 transition-all resize-none h-[220px] font-light italic leading-relaxed" />
                   </div>
-                  <button onClick={handleSubmitVote} className="w-full bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-600 hover:from-indigo-400 hover:to-pink-500 text-white font-black py-6 rounded-[30px] shadow-[0_20px_50px_rgba(99,102,241,0.3)] transition-all flex items-center justify-center gap-4 group active:scale-[0.98] text-xl">
-                    Deploy Evaluation <ArrowRight className="w-6 h-6 group-hover:translate-x-2 transition-transform" />
+                  <button onClick={handleSubmitVote} disabled={isSubmitting} className="w-full bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-600 hover:from-indigo-400 hover:to-pink-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-6 rounded-[30px] shadow-[0_20px_50px_rgba(99,102,241,0.3)] transition-all flex items-center justify-center gap-4 group active:scale-[0.98] text-xl">
+                    {isSubmitting ? <>Registering Vote… <Loader2 className="w-6 h-6 animate-spin" /></> : <>Deploy Evaluation <ArrowRight className="w-6 h-6 group-hover:translate-x-2 transition-transform" /></>}
                   </button>
                   <button onClick={() => setVotingStep(1)} className="w-full py-4 text-xs font-bold text-gray-500 uppercase tracking-[0.3em] hover:text-gray-300 transition-colors">
                     &larr; Re-pick Winner

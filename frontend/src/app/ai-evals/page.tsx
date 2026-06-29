@@ -85,35 +85,59 @@ const axisScore = (ev?: AutoEval, key?: keyof AutoEval): number | null => {
   return typeof a?.score === "number" ? a.score : null;
 };
 
+// Image/TTS media is served via /api/{image,tts}/media — prefix with the API base.
+const mediaUrl = (u?: string): string | undefined =>
+  u && u.startsWith("/api/") ? `${API_BASE_URL}${u}` : formatUrl(u);
+
+const prettyMetric = (k: string) =>
+  k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
 export default function AiEvals() {
   const [jobs, setJobs] = useState<RatingJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>("");
   const [filter, setFilter] = useState("");
+  const [modality, setModality] = useState<"all" | "video" | "image" | "audio">("all");
 
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
       setError("");
       try {
-        const res = await fetch(`${API_BASE_URL}/api/sxs/jobs`);
-        if (!res.ok) throw new Error(`Server responded ${res.status}`);
-        const data = await res.json();
-        const list: RatingJob[] = Array.isArray(data) ? data : (data.jobs ?? []);
-        const mapped = list.map((j) => {
-          const results = j.results || {};
-          const fixed: Record<string, ResultEntry> = {};
-          Object.keys(results).forEach((k) => {
-            fixed[k] = { ...results[k], url: formatUrl(results[k]?.url) };
-          });
-          return {
-            ...j,
-            results: fixed,
-            reference_images: (j.reference_images || []).map(formatUrl).filter((u): u is string => !!u),
-            reference_videos: (j.reference_videos || []).map(formatUrl).filter((u): u is string => !!u),
-          };
-        });
-        setJobs(mapped);
+        const endpoints: { url: string; modality: string }[] = [
+          { url: `${API_BASE_URL}/api/sxs/jobs`, modality: "video" },
+          { url: `${API_BASE_URL}/api/image/jobs`, modality: "image" },
+          { url: `${API_BASE_URL}/api/tts/jobs`, modality: "audio" },
+        ];
+        const settled = await Promise.all(
+          endpoints.map(async (e) => {
+            try {
+              const res = await fetch(e.url);
+              if (!res.ok) return [];
+              const data = await res.json();
+              const list: any[] = Array.isArray(data) ? data : (data.jobs ?? []);
+              return list.map((j: any) => {
+                const results = j.results || {};
+                const fixed: Record<string, any> = {};
+                Object.keys(results).forEach((k) => {
+                  fixed[k] = { ...results[k], url: mediaUrl(results[k]?.url) };
+                });
+                return {
+                  ...j,
+                  _modality: e.modality,
+                  results: fixed,
+                  reference_images: (j.reference_images || []).map(mediaUrl).filter(Boolean),
+                  reference_videos: (j.reference_videos || []).map(mediaUrl).filter(Boolean),
+                };
+              });
+            } catch {
+              return [];
+            }
+          })
+        );
+        const merged = settled.flat();
+        merged.sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
+        setJobs(merged as RatingJob[]);
       } catch (err: any) {
         setError(err?.message || "Failed to load ratings");
       } finally {
@@ -123,16 +147,26 @@ export default function AiEvals() {
     load();
   }, []);
 
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: jobs.length, video: 0, image: 0, audio: 0 };
+    jobs.forEach((j: any) => { c[j._modality || "video"] = (c[j._modality || "video"] || 0) + 1; });
+    return c;
+  }, [jobs]);
+
   const filtered = useMemo(() => {
-    if (!filter.trim()) return jobs;
-    const q = filter.toLowerCase();
-    return jobs.filter(
-      (j) =>
-        (j.customer || "").toLowerCase().includes(q) ||
-        (j.prompt || "").toLowerCase().includes(q) ||
-        (j.prompt_id || "").toLowerCase().includes(q)
-    );
-  }, [jobs, filter]);
+    let list = jobs as any[];
+    if (modality !== "all") list = list.filter((j) => (j._modality || "video") === modality);
+    if (filter.trim()) {
+      const q = filter.toLowerCase();
+      list = list.filter(
+        (j) =>
+          (j.customer || "").toLowerCase().includes(q) ||
+          (j.prompt || j.text || "").toLowerCase().includes(q) ||
+          (j.prompt_id || j.id || "").toLowerCase().includes(q)
+      );
+    }
+    return list as RatingJob[];
+  }, [jobs, filter, modality]);
 
   return (
     <div className="min-h-screen bg-[#06080b] text-gray-100 font-sans selection:bg-indigo-500/30 overflow-x-hidden">
@@ -173,9 +207,34 @@ export default function AiEvals() {
             </span>
           </h1>
           <p className="text-gray-500 text-sm md:text-base mt-3 font-light max-w-2xl">
-            Every video&apos;s machine-generated Core-5 scores, side by side, with per-axis and composite winners.
+            Machine-generated auto-evaluations across every modality — video, image, and audio — side by side, with per-metric and composite winners.
           </p>
         </section>
+
+        {/* Modality tabs */}
+        <div className="mb-6 flex flex-wrap items-center gap-2">
+          {([
+            { id: "all", label: "All" },
+            { id: "video", label: "Video" },
+            { id: "image", label: "Image" },
+            { id: "audio", label: "TTS" },
+          ] as const).map((t) => {
+            const isActive = modality === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setModality(t.id)}
+                className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${
+                  isActive
+                    ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300"
+                    : "bg-white/5 border-white/10 text-gray-400 hover:text-white hover:border-white/20"
+                }`}
+              >
+                {t.label} <span className="opacity-60">{counts[t.id] ?? 0}</span>
+              </button>
+            );
+          })}
+        </div>
 
         {/* Filter */}
         <div className="mb-8">
@@ -203,9 +262,13 @@ export default function AiEvals() {
           </div>
         ) : (
           <div className="space-y-10">
-            {filtered.map((job) => (
-              <RatingCard key={job.id} job={job} />
-            ))}
+            {filtered.map((job) =>
+              (job as any)._modality && (job as any)._modality !== "video" ? (
+                <MediaRatingCard key={job.id} job={job as any} />
+              ) : (
+                <RatingCard key={job.id} job={job} />
+              )
+            )}
           </div>
         )}
       </main>
@@ -528,6 +591,113 @@ function AxisRow({
       {open && !explanation && (
         <div className="px-3 pb-3 text-[11px] text-gray-600 font-light italic">No explanation provided.</div>
       )}
+    </div>
+  );
+}
+
+// ===================================================================
+// Image / TTS auto-eval card — ai_eval has A/B sides with per-metric scores.
+// ===================================================================
+function MediaRatingCard({ job }: { job: any }) {
+  const isAudio = job._modality === "audio";
+  const ai = job.ai_eval || {};
+  const sides = ["A", "B"];
+  const winner = (ai.winner_side || "").toUpperCase();
+  const promptText = job.prompt || job.text || "No prompt";
+  const metricKeys: string[] =
+    Array.isArray(ai.metrics) && ai.metrics.length
+      ? ai.metrics
+      : Array.from(
+          new Set(
+            sides.flatMap((s) =>
+              Object.keys(ai[s] || {}).filter((k) => typeof ai[s][k] === "number" && k !== "overall_score")
+            )
+          )
+        );
+
+  return (
+    <div className="bg-[#0b0e14] border border-white/5 rounded-[40px] p-8 shadow-3xl">
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <span className="px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[10px] font-black uppercase tracking-widest">
+              {isAudio ? "TTS" : "Image"}
+            </span>
+            {(job.mode || job.modality) && (
+              <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-400 text-[10px] font-black uppercase tracking-widest">
+                {job.mode || job.modality}
+              </span>
+            )}
+            <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-500 text-[10px] font-mono">
+              {job.prompt_id || job.id}
+            </span>
+          </div>
+          <p className="text-gray-300 font-light text-base">&ldquo;{promptText}&rdquo;</p>
+          {job.input_image && (
+            <div className="mt-3">
+              <div className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-2">Input Image</div>
+              <img src={mediaUrl(job.input_image)} alt="input" className="w-24 h-24 object-cover rounded-xl border border-white/10 bg-black/40" />
+            </div>
+          )}
+        </div>
+        <div className="px-4 py-2 rounded-2xl bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 border border-white/10 text-center">
+          <div className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1">AI Winner</div>
+          <div className="text-sm font-black text-white flex items-center gap-2 justify-center">
+            {ai.winner_engine ? <><span>🏆</span>{prettyModel(ai.winner_engine)}</> : "—"}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {sides.map((side, idx) => {
+          const result = job.results?.[side] || {};
+          const ev = ai[side] || {};
+          const label = prettyModel(job.side_map?.[side] || result.model || result.engine || side);
+          const won = winner === side;
+          const accent = ACCENTS[idx % ACCENTS.length];
+          const failed = (result.status || "").toLowerCase() === "error" || !result.url;
+          return (
+            <div key={side} className="bg-[#06080b] border border-white/5 rounded-3xl overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/5">
+                <div className="flex items-center gap-2">
+                  <span className={`w-1.5 h-1.5 rounded-full ${accent.dot}`}></span>
+                  <span className={`text-[11px] font-black uppercase tracking-widest ${accent.text}`}>{label}</span>
+                </div>
+                {won && <span className="text-sm">🏆</span>}
+              </div>
+
+              <div className={`${isAudio ? "p-5" : "aspect-square"} bg-black/40 flex items-center justify-center`}>
+                {failed ? (
+                  <div className="text-[10px] font-black uppercase tracking-widest text-red-500/70 px-4 py-6 text-center">
+                    {result.error ? `Error: ${String(result.error).slice(0, 80)}` : "No output"}
+                  </div>
+                ) : isAudio ? (
+                  <audio controls src={result.url} className="w-full" />
+                ) : (
+                  <img src={result.url} alt={label} className="w-full h-full object-cover" />
+                )}
+              </div>
+
+              <div className="p-5 space-y-2">
+                <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-widest text-gray-500 px-1 pb-1 border-b border-white/5">
+                  <span>Metric</span><span>Score</span>
+                </div>
+                {metricKeys.map((k) => (
+                  <div key={k} className="flex items-center justify-between py-1.5 px-1 border-b border-white/[0.03] last:border-0">
+                    <span className="text-xs text-gray-300 font-medium">{prettyMetric(k)}</span>
+                    <span className="text-sm font-black font-mono text-gray-400">{typeof ev[k] === "number" ? `${ev[k]}/5` : "—"}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-3 mt-1 border-t border-white/10">
+                  <span className="text-[11px] font-black uppercase tracking-widest text-white">Overall</span>
+                  <span className={`text-lg font-black font-mono ${accent.text}`}>{typeof ev.overall_score === "number" ? `${ev.overall_score}/5` : "—"}</span>
+                </div>
+                {ev.comment && <p className="text-[11px] text-gray-500 font-light italic leading-relaxed pt-2">{ev.comment}</p>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

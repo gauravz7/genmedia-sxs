@@ -1117,9 +1117,25 @@ async def sxs_translate(req: TranslateRequest):
 
 @app.post("/api/sxs/vote")
 async def sxs_vote(req: SxsVoteRequest):
-    """Store a human vote for an SxS pair in the isolated sxs_votes collection."""
+    """Store a human vote for an SxS pair in the isolated sxs_votes collection.
+
+    Idempotency guard: ignore a duplicate vote from the same evaluator on the
+    same pair within a short window (rapid double-clicks / retries)."""
     from google.cloud import firestore as _fs
     db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+
+    now = time.time()
+    dupe_window = 20  # seconds
+    for v in (
+        db.collection(SXS_VOTES_COLLECTION)
+        .where("job_id", "==", req.job_id)
+        .where("ldap", "==", req.ldap or "anonymous")
+        .stream()
+    ):
+        d = v.to_dict()
+        if (now - (d.get("timestamp") or 0)) < dupe_window:
+            return {"status": "duplicate_ignored", "vote_id": d.get("id")}
+
     vote_id = f"sxsvote_{int(time.time()*1000)}"
     db.collection(SXS_VOTES_COLLECTION).document(vote_id).set({
         "id": vote_id,
@@ -2320,6 +2336,29 @@ async def add_comment(body: SlideFeedback):
         "comments": comments,
     }, merge=True)
     return {"status": "ok", "comments": comments}
+
+
+# ===================================================================
+# Cross-modality vote count — gates Analytics access (10-vote unlock)
+# ===================================================================
+@app.get("/api/votes/count")
+async def votes_count(ldap: str = Query("")):
+    """Total votes a user (by ldap) has cast across ALL modalities
+    (video sxs_votes + image_votes + tts_votes + legacy votes). Used by the
+    Analytics page to enforce the 10-vote access gate."""
+    required = 10
+    ldap = (ldap or "").strip()
+    if not ldap or ldap.lower() in ("global", "anonymous"):
+        return {"ldap": ldap, "count": 0, "required": required, "unlocked": False}
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    total = 0
+    for coll in (SXS_VOTES_COLLECTION, "image_votes", "tts_votes", "votes"):
+        try:
+            total += sum(1 for _ in db.collection(coll).where("ldap", "==", ldap).stream())
+        except Exception:
+            pass
+    return {"ldap": ldap, "count": total, "required": required, "unlocked": total >= required}
 
 
 # ===================================================================
