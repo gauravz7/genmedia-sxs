@@ -197,7 +197,7 @@ export default function VideoSxSArena() {
       await voteRes.json().catch(() => ({}));
       setVoteCount((c) => c + 1);
       setVoteAck("✓ Vote registered");
-      setTimeout(() => { handleNextPair(); }, 1000);
+      setTimeout(() => { handleNextPair(); }, 3000);
     } catch (err) {
       console.error("Failed to submit vote", err);
       setVoteAck("Vote failed to register — please try again");
@@ -298,6 +298,21 @@ export default function VideoSxSArena() {
             &ldquo;{currentEval?.prompt || "Loading Scenario..."}&rdquo;
           </h1>
           {currentEval?.prompt && <TranslateButton text={currentEval.prompt} />}
+          {currentEval && ((currentEval.reference_images?.length ?? 0) > 0 || (currentEval.reference_videos?.length ?? 0) > 0) && (
+            <div className="mt-4">
+              <div className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-2">
+                {(currentEval.modality || "").toUpperCase().includes("I2V") ? "Input Image" : "Reference"}
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {currentEval.reference_images?.map((url, i) => (
+                  <img key={i} src={url} alt={`reference ${i + 1}`} className="w-28 h-28 object-cover rounded-2xl border border-white/10 bg-black/50" />
+                ))}
+                {currentEval.reference_videos?.map((url, i) => (
+                  <video key={`v${i}`} src={url} controls muted className="w-28 h-28 object-cover rounded-2xl border border-white/10 bg-black/50" />
+                ))}
+              </div>
+            </div>
+          )}
           {currentEval && (
             <div className="flex items-center gap-4 text-sm text-gray-500 italic font-light mt-3">
               <span className="font-mono">PID: {maskPid(currentEval.job_id)}</span>

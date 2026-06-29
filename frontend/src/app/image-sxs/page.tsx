@@ -201,6 +201,8 @@ function BlindEvalPanel({ ldap }: { ldap: string }) {
       // Reveal the AI judge + identities after voting.
       const ai = await fetch(`${API_BASE_URL}/api/image/aieval/${pair.job_id}`).then((r) => r.json()).catch(() => null);
       setReveal(ai);
+      // Pause on the reveal, then auto-advance to the next pair.
+      setTimeout(() => loadPair(), 3000);
     } catch (e: any) {
       setError(e?.message || "Vote failed");
       setVoteAck("Vote failed…");

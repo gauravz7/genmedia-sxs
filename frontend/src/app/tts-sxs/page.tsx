@@ -200,6 +200,8 @@ function EvaluatePanel({ ldap }: { ldap: string }) {
       setReveal({ vote: data, ai });
       setMsg("Vote recorded.");
       setVoteAck("Vote recorded.");
+      // Pause on the reveal, then auto-advance to the next pair.
+      setTimeout(() => loadPair(), 3000);
     } catch (e: any) {
       setMsg(e?.message || "Vote failed");
       setVoteAck("Vote failed…");

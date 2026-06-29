@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { API_BASE_URL } from "@/lib/api";
 
 // ===================================================================
@@ -12,6 +12,14 @@ export default function TranslateButton({ text }: { text?: string }) {
   const [translation, setTranslation] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [show, setShow] = useState(false);
+
+  // Reset whenever the source text changes (new pair) so a stale translation
+  // never carries over from the previous pair.
+  useEffect(() => {
+    setTranslation(null);
+    setShow(false);
+    setLoading(false);
+  }, [text]);
 
   const run = async () => {
     if (!text) return;
