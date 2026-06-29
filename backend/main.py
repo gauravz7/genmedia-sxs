@@ -2087,6 +2087,73 @@ async def sxs_user_leaderboard():
     return {"status": "success", "leaderboard": top_10}
 
 
+@app.get("/api/analytics/latency")
+async def analytics_latency():
+    """Average generation latency per (modality, model) across all modalities:
+    video (t2v/i2v/r2v from sxs_jobs), image (t2i/i2i from image_jobs), and
+    speech (tts from tts_jobs). Latency normalized to SECONDS (video stores
+    `latency` in s; image/tts store `latency_ms`)."""
+    from google.cloud import firestore as _fs
+    from sxs_pipeline import modality_to_type
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+
+    # acc[(modality, model)] = [sum_seconds, count]
+    acc: Dict[tuple, list] = {}
+
+    def add(modality: str, model: str, seconds: float):
+        if seconds is None or model is None:
+            return
+        key = (modality, model)
+        a = acc.setdefault(key, [0.0, 0])
+        a[0] += float(seconds)
+        a[1] += 1
+
+    # --- Video: sxs_jobs (latency in seconds; model = result key) ---
+    sxs_coll = os.getenv("SXS_COLLECTION", "sxs_jobs")
+    for d in db.collection(sxs_coll).where("source", "==", "sxs_auto").stream():
+        j = d.to_dict()
+        modality = modality_to_type(j.get("modality") or "t2v")  # -> t2v/i2v/r2v
+        for mid, r in (j.get("results") or {}).items():
+            if isinstance(r, dict) and r.get("status") == "success" and r.get("latency") is not None:
+                add(modality, mid, r.get("latency"))
+
+    # --- Image: image_jobs (latency_ms; model = result.engine; modality = mode t2i/i2i) ---
+    img_coll = os.getenv("IMAGE_COLLECTION", "image_jobs")
+    try:
+        for d in db.collection(img_coll).stream():
+            j = d.to_dict()
+            modality = (j.get("mode") or "t2i").lower()
+            for r in (j.get("results") or {}).values():
+                if isinstance(r, dict) and r.get("status") == "success" and r.get("latency_ms") is not None:
+                    add(modality, r.get("engine") or r.get("model"), r.get("latency_ms") / 1000.0)
+    except Exception as e:
+        print(f"[analytics_latency] image scan failed: {e}")
+
+    # --- Speech: tts_jobs (latency_ms; model = result.engine; modality = 'tts') ---
+    tts_coll = os.getenv("TTS_COLLECTION", "tts_jobs")
+    try:
+        for d in db.collection(tts_coll).stream():
+            j = d.to_dict()
+            for r in (j.get("results") or {}).values():
+                if isinstance(r, dict) and r.get("status") == "success" and r.get("latency_ms") is not None:
+                    add("tts", r.get("engine") or r.get("model"), r.get("latency_ms") / 1000.0)
+    except Exception as e:
+        print(f"[analytics_latency] tts scan failed: {e}")
+
+    rows = [
+        {
+            "modality": mod,
+            "model": model,
+            "avg_latency_s": round(s / n, 2) if n else None,
+            "samples": n,
+        }
+        for (mod, model), (s, n) in acc.items()
+    ]
+    order = {"t2v": 0, "i2v": 1, "r2v": 2, "t2i": 3, "i2i": 4, "tts": 5}
+    rows.sort(key=lambda x: (order.get(x["modality"], 9), -x["samples"]))
+    return {"rows": rows, "modalities": ["t2v", "i2v", "r2v", "t2i", "i2i", "tts"]}
+
+
 # ===================================================================
 # Health & Media Proxy
 # ===================================================================

@@ -139,6 +139,14 @@ def _input_image(case: dict) -> Optional[str]:
 
 # --- generation: one side ---------------------------------------------------
 
+def _aspect_ratio(case: dict) -> Optional[str]:
+    return str(case.get("aspect_ratio") or case.get("aspectRatio") or "").strip() or None
+
+
+def _resolution(case: dict) -> Optional[str]:
+    return str(case.get("resolution") or "").strip() or None
+
+
 async def _gen_side(side: dict, case: dict) -> dict:
     """Generate one matchup side for a case. Routes by provider. Captures any
     error into the result dict (never raises)."""
@@ -146,16 +154,20 @@ async def _gen_side(side: dict, case: dict) -> dict:
     prompt = case.get("prompt", "") or ""
     input_image = _input_image(case) if mode == "i2i" else None
     case_id = case.get("id", "case")
+    aspect_ratio = _aspect_ratio(case)
+    resolution = _resolution(case)
 
     if side["provider"] == "gemini":
         return await generate_gemini_image(
             model=side["model"], prompt=prompt,
             input_image_url=input_image, case_id=case_id,
+            aspect_ratio=aspect_ratio, resolution=resolution,
         )
     if side["provider"] == "gpt":
         return await generate_gpt_image(
             prompt=prompt, quality=side.get("quality") or "medium",
             input_image_url=input_image, case_id=case_id,
+            aspect_ratio=aspect_ratio, resolution=resolution,
         )
     return {"model": side.get("engine", "unknown"), "status": "error",
             "error": f"Unknown provider: {side['provider']}"}
@@ -188,6 +200,8 @@ def create_image_job(case: dict, batch_id: Optional[str] = None) -> str:
         "prompt_id": case_id,
         "prompt": case.get("prompt", ""),
         "categories": _categories(case),
+        "aspect_ratio": _aspect_ratio(case) or "",
+        "resolution": _resolution(case) or "",
         "mode": _mode(case),
         "matchup": matchup["id"],
         "matchup_label": matchup["label"],

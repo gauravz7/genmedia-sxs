@@ -27,6 +27,7 @@ export default function Analytics() {
   const [tagSearch, setTagSearch] = useState("");
   const [history, setHistory] = useState<any[]>([]);
   const [globalLeaderboard, setGlobalLeaderboard] = useState<any[]>([]);
+  const [latency, setLatency] = useState<any[]>([]);
   const [modTab, setModTab] = useState<"video" | "image" | "tts">("video");
   // 10-vote access gate (counts votes across video + image + tts).
   const [gate, setGate] = useState<{ checked: boolean; unlocked: boolean; count: number; required: number }>({ checked: false, unlocked: false, count: 0, required: 10 });
@@ -72,6 +73,10 @@ export default function Analytics() {
     fetch(`${API_BASE_URL}/api/sxs/leaderboard/users`)
       .then(res => res.json())
       .then(data => { if (data?.status === "success" && data.leaderboard) setGlobalLeaderboard(data.leaderboard); })
+      .catch(() => {});
+    fetch(`${API_BASE_URL}/api/analytics/latency`)
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data?.rows)) setLatency(data.rows); })
       .catch(() => {});
     try {
       const savedHistory = localStorage.getItem('project_pulse_history');
@@ -374,6 +379,49 @@ export default function Analytics() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Latency across modalities */}
+        <div className="pt-8 border-t border-white/5 mt-8">
+          <h3 className="text-xl font-light text-gray-300 mb-2">Latency by Modality</h3>
+          <p className="text-gray-600 text-xs mb-6">Average successful generation time per model (seconds). Across t2v · i2v · r2v · t2i · i2i · tts.</p>
+          {latency.length === 0 ? (
+            <div className="text-gray-600 text-sm italic">No latency data yet.</div>
+          ) : (
+            (() => {
+              const MOD_LABEL: Record<string, string> = { t2v: "Text→Video", i2v: "Image→Video", r2v: "Ref→Video", t2i: "Text→Image", i2i: "Image→Image", tts: "Speech (TTS)" };
+              const ORDER = ["t2v", "i2v", "r2v", "t2i", "i2i", "tts"];
+              const byMod: Record<string, any[]> = {};
+              latency.forEach((r: any) => { (byMod[r.modality] = byMod[r.modality] || []).push(r); });
+              const maxL = Math.max(1, ...latency.map((r: any) => r.avg_latency_s || 0));
+              const present = ORDER.filter(m => byMod[m]?.length);
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {present.map(mod => (
+                    <div key={mod} className="bg-[#0b0e14] border border-white/5 rounded-3xl p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-sm font-black text-white uppercase tracking-widest">{mod}</span>
+                        <span className="text-[10px] text-gray-500 uppercase tracking-widest">{MOD_LABEL[mod] || mod}</span>
+                      </div>
+                      <div className="space-y-3">
+                        {byMod[mod].sort((a, b) => (a.avg_latency_s || 0) - (b.avg_latency_s || 0)).map((r: any) => (
+                          <div key={r.model}>
+                            <div className="flex items-center justify-between text-xs mb-1">
+                              <span className="text-gray-300 font-mono truncate max-w-[60%]">{r.model}</span>
+                              <span className="text-white font-bold font-mono">{r.avg_latency_s}s <span className="text-gray-600 font-normal">· n={r.samples}</span></span>
+                            </div>
+                            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-emerald-500 via-indigo-500 to-pink-500" style={{ width: `${Math.min(100, ((r.avg_latency_s || 0) / maxL) * 100)}%` }}></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()
+          )}
         </div>
 
         {/* Your Recent Evaluations (video) */}

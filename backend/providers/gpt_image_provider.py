@@ -67,6 +67,24 @@ def _norm_quality(quality: Optional[str]) -> str:
     return q if q in VALID_QUALITY else "medium"
 
 
+# gpt-image-1 supports three fixed sizes; map an aspect ratio to orientation.
+# (The model has no 2K/4K tier, so `resolution` only nudges nothing here — the
+# orientation is what matters.)
+_PORTRAIT = {"9:16", "2:3", "3:4", "4:5", "portrait"}
+_LANDSCAPE = {"16:9", "3:2", "4:3", "5:4", "landscape"}
+
+
+def _gpt_image_size(aspect_ratio: Optional[str], fallback: str = "auto") -> str:
+    ar = (aspect_ratio or "").strip().lower()
+    if ar in _PORTRAIT:
+        return "1024x1536"
+    if ar in _LANDSCAPE:
+        return "1536x1024"
+    if ar in ("1:1", "square"):
+        return "1024x1024"
+    return fallback
+
+
 def _extract_image_url(result) -> Optional[str]:
     if not isinstance(result, dict):
         return None
@@ -89,20 +107,25 @@ async def generate_gpt_image(
     input_image_url: Optional[str] = None,
     case_id: str = "case",
     image_size: str = "auto",
+    aspect_ratio: Optional[str] = None,
+    resolution: Optional[str] = None,
 ) -> dict:
     """Generate (T2I) or edit (I2I) one image on GPT-image via FAL at the given
     quality tier. I2I is selected when `input_image_url` is provided.
+    `aspect_ratio` sets the gpt-image-1 orientation (square/portrait/landscape);
+    gpt-image-1 has no 2K/4K tier so `resolution` is accepted but not applied.
 
     Returns the standard result dict; errors are captured (never raised).
     """
     start = time.time()
     q = _norm_quality(quality)
     label = f"{GPT_IMAGE_MODEL} ({q})"
+    size = _gpt_image_size(aspect_ratio, fallback=image_size)
     try:
         arguments = {
             "prompt": prompt or "",
             "quality": q,
-            "image_size": image_size,
+            "image_size": size,
             "num_images": 1,
             "output_format": "png",
         }

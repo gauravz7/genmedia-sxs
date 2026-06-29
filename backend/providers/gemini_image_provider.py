@@ -127,11 +127,26 @@ def _slug(value) -> str:
     return s or "img"
 
 
+def _norm_resolution(resolution) -> Optional[str]:
+    """Map a requested resolution to a Gemini image_size token (1K/2K/4K).
+    Gemini's minimum is 1K, so 512/1024 → 1K."""
+    r = str(resolution or "").strip().lower()
+    if not r:
+        return None
+    if r in ("4k", "4096"):
+        return "4K"
+    if r in ("2k", "2048"):
+        return "2K"
+    return "1K"
+
+
 async def generate_gemini_image(
     model: str,
     prompt: str,
     input_image_url: Optional[str] = None,
     case_id: str = "case",
+    aspect_ratio: Optional[str] = None,
+    resolution: Optional[str] = None,
 ) -> dict:
     """Generate (T2I) or edit (I2I) one image on a Gemini image model.
 
@@ -150,24 +165,47 @@ async def generate_gemini_image(
             part = await asyncio.to_thread(_inline_image_part, input_image_url)
             contents.append(part)
 
-        config = types.GenerateContentConfig(response_modalities=["IMAGE"])
+        # Build image_config from aspect_ratio + resolution. Some models may not
+        # accept image_size — if a configured call errors we fall back to a basic
+        # config (response_modalities only) so generation still succeeds.
+        ic_kwargs = {}
+        ar = (aspect_ratio or "").strip() or None
+        res = _norm_resolution(resolution)
+        if ar:
+            ic_kwargs["aspect_ratio"] = ar
+        if res:
+            ic_kwargs["image_size"] = res
+        config_full = types.GenerateContentConfig(
+            response_modalities=["IMAGE"],
+            image_config=types.ImageConfig(**ic_kwargs) if ic_kwargs else None,
+        )
+        config_basic = types.GenerateContentConfig(response_modalities=["IMAGE"])
+        configs = [config_full] if not ic_kwargs else [config_full, config_basic]
 
         # The model occasionally returns no image (text-only refusal / empty
-        # candidate); retry a couple of times before giving up.
+        # candidate); retry a couple of times before giving up. If a configured
+        # call raises, fall through to the next (basic) config.
         last_text = ""
         img_bytes, mime = None, None
-        for attempt in range(3):
-            resp = await asyncio.to_thread(
-                lambda: client.models.generate_content(
-                    model=model, contents=contents, config=config
-                )
-            )
-            img_bytes, mime = _extract_image(resp)
+        for cfg in configs:
+            for attempt in range(3):
+                try:
+                    resp = await asyncio.to_thread(
+                        lambda cfg=cfg: client.models.generate_content(
+                            model=model, contents=contents, config=cfg
+                        )
+                    )
+                except Exception as ge:
+                    last_text = f"config error: {ge}"
+                    break  # try next config (e.g. drop image_size)
+                img_bytes, mime = _extract_image(resp)
+                if img_bytes:
+                    break
+                last_text = _gen_text_blob(resp)
+                if attempt < 2:
+                    await asyncio.sleep(3.0)
             if img_bytes:
                 break
-            last_text = _gen_text_blob(resp)
-            if attempt < 2:
-                await asyncio.sleep(3.0)
 
         if not img_bytes:
             msg = "Model returned no image"
