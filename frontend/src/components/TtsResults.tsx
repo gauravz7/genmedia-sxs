@@ -28,17 +28,31 @@ export default function TtsResults() {
   const [stats, setStats] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [language, setLanguage] = useState("");
+  const [availableLanguages, setAvailableLanguages] = useState<string[]>([]);
 
+  // Initial load: stats (global), user leaderboard, and the language filter list.
   useEffect(() => {
     Promise.all([
       fetch(`${API_BASE_URL}/api/tts/stats`).then((r) => r.json()).catch(() => null),
       fetch(`${API_BASE_URL}/api/tts/leaderboard/users`).then((r) => r.json()).catch(() => null),
-    ]).then(([s, u]) => {
+      fetch(`${API_BASE_URL}/api/tts/languages`).then((r) => r.json()).catch(() => null),
+    ]).then(([s, u, l]) => {
       setStats(s?.global || null);
       setUsers(u?.leaderboard || []);
+      if (Array.isArray(l?.languages)) setAvailableLanguages(l.languages);
       setLoading(false);
     });
   }, []);
+
+  // Refetch stats whenever the language filter changes.
+  useEffect(() => {
+    const qs = language ? `?language=${encodeURIComponent(language)}` : "";
+    fetch(`${API_BASE_URL}/api/tts/stats${qs}`)
+      .then((r) => r.json())
+      .catch(() => null)
+      .then((s) => setStats(s?.global || null));
+  }, [language]);
 
   if (loading) return (
     <div className="py-24 flex flex-col items-center justify-center text-gray-500 gap-4 bg-white/[0.02] border border-white/5 rounded-[40px]">
@@ -65,6 +79,17 @@ export default function TtsResults() {
         <span className="text-xs font-black uppercase tracking-widest text-gray-500">{totalEvals} total human votes</span>
         <span className="text-gray-700">·</span>
         <span className="text-xs font-black uppercase tracking-widest text-gray-500">{skus.length} engine{skus.length !== 1 ? "s" : ""}</span>
+        <span className="text-gray-700">·</span>
+        <select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          className={`px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${language ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300" : "bg-white/5 border-white/10 text-gray-500 hover:text-white"}`}
+        >
+          <option value="">All languages</option>
+          {availableLanguages.map((code) => (
+            <option key={code} value={code}>{code}</option>
+          ))}
+        </select>
       </div>
 
       {/* Win-rate cards per engine */}

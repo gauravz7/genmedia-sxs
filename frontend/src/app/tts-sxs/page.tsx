@@ -125,18 +125,22 @@ function EvaluatePanel({ ldap }: { ldap: string }) {
   const [activeTag, setActiveTag] = useState("");
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [showTagFilter, setShowTagFilter] = useState(false);
+  const [activeLanguage, setActiveLanguage] = useState("");
+  const [availableLanguages, setAvailableLanguages] = useState<string[]>([]);
 
-  const loadPair = useCallback(async (forcePromptId?: string, forceTag?: string, forceSearch?: string) => {
+  const loadPair = useCallback(async (forcePromptId?: string, forceTag?: string, forceSearch?: string, forceLang?: string) => {
     setLoading(true); setReveal(null); setWinner(""); setJustification(""); setMsg("");
     setScores({ A: {}, B: {} });
     try {
       // `undefined` → fall back to current state; an explicit string (incl. "") overrides.
       const tag = forceTag ?? activeTag;
       const search = forceSearch ?? searchText;
+      const lang = forceLang ?? activeLanguage;
       const params = new URLSearchParams();
       if (forcePromptId) params.set("prompt_id", forcePromptId);
       if (tag) params.set("tag", tag);
       if (search) params.set("search", search);
+      if (lang) params.set("language", lang);
       const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await fetch(`${API_BASE_URL}/api/tts/pair${qs}`);
       const data = await res.json();
@@ -146,7 +150,7 @@ function EvaluatePanel({ ldap }: { ldap: string }) {
     } finally {
       setLoading(false);
     }
-  }, [activeTag, searchText]);
+  }, [activeTag, searchText, activeLanguage]);
 
   const fetchTags = useCallback(async () => {
     try {
@@ -156,7 +160,15 @@ function EvaluatePanel({ ldap }: { ldap: string }) {
     } catch { /* non-fatal */ }
   }, []);
 
-  useEffect(() => { loadPair(); fetchTags(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  const fetchLanguages = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/tts/languages`);
+      const data = await res.json();
+      if (Array.isArray(data?.languages)) setAvailableLanguages(data.languages);
+    } catch { /* non-fatal */ }
+  }, []);
+
+  useEffect(() => { loadPair(); fetchTags(); fetchLanguages(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   const setScore = (side: string, metric: string, val: number) =>
     setScores((s) => ({ ...s, [side]: { ...s[side], [metric]: val } }));
@@ -169,8 +181,13 @@ function EvaluatePanel({ ldap }: { ldap: string }) {
   };
 
   const handleClearFilters = () => {
-    setActiveTag(""); setSearchText(""); setSearchPromptId("");
-    loadPair(undefined, "", "");
+    setActiveTag(""); setSearchText(""); setSearchPromptId(""); setActiveLanguage("");
+    loadPair(undefined, "", "", "");
+  };
+
+  const handleLanguageChange = (lang: string) => {
+    setActiveLanguage(lang);
+    loadPair(undefined, undefined, undefined, lang);
   };
 
   const submit = async () => {
@@ -239,6 +256,16 @@ function EvaluatePanel({ ldap }: { ldap: string }) {
                 {activeTag && <X className="w-3 h-3 ml-1 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleClearFilters(); }} />}
               </button>
             )}
+            <select
+              value={activeLanguage}
+              onChange={(e) => handleLanguageChange(e.target.value)}
+              className={`px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${activeLanguage ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300" : "bg-white/5 border-white/10 text-gray-500 hover:text-white"}`}
+            >
+              <option value="">All languages</option>
+              {availableLanguages.map((code) => (
+                <option key={code} value={code}>{code}</option>
+              ))}
+            </select>
           </div>
           <VoteProgress ldap={ldap} refreshKey={voteCount} />
         </div>
@@ -287,6 +314,7 @@ function EvaluatePanel({ ldap }: { ldap: string }) {
                 <div className="flex items-center gap-3">
                   <span className="w-2 h-8 bg-indigo-500 rounded-full"></span>
                   <h2 className="text-xl font-light text-white">Blind A/B Evaluation</h2>
+                  {pair.language && <span className="px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-gray-400 text-[10px] font-black uppercase tracking-widest">{pair.language}</span>}
                 </div>
                 <button onClick={handleSkip} className="flex items-center gap-2 px-5 py-2.5 bg-red-500/5 border border-red-500/10 rounded-2xl hover:bg-red-500/10 transition-all group">
                   <ChevronRight className="w-4 h-4 text-red-400 group-hover:translate-x-0.5 transition-transform" />

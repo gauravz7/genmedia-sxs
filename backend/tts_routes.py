@@ -253,15 +253,17 @@ async def tts_pair(
     tag: Optional[str] = Query(None),
     prompt_id: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    language: Optional[str] = Query(None),
 ):
     """Return a random blind A/B TTS pair (both sides succeeded) for voting.
-    Optional filters: tag (category), prompt_id (substring), search (text)."""
+    Optional filters: tag (category), prompt_id (substring), search (text), language."""
     db = _db()
     docs = list(db.collection(TTS_COLLECTION).where("source", "==", "sxs_auto").stream())
 
     tag_l = (tag or "").strip().lower()
     pid_l = (prompt_id or "").strip().lower()
     q_l = (search or "").strip().lower()
+    lang_l = (language or "").strip().lower()
 
     candidates = []
     for doc in docs:
@@ -279,6 +281,8 @@ async def tts_pair(
         if pid_l and pid_l not in str(d.get("prompt_id", "")).lower():
             continue
         if q_l and q_l not in str(d.get("text", "") or d.get("prompt", "")).lower():
+            continue
+        if lang_l and lang_l != str(d.get("language", "")).strip().lower():
             continue
         candidates.append(d)
 
@@ -312,6 +316,19 @@ async def tts_tags():
             if t:
                 tags.add(str(t))
     return {"status": "success", "tags": sorted(tags)}
+
+
+@router.get("/languages")
+async def tts_languages():
+    """Distinct languages actually present across TTS jobs (incl. mixed codes
+    like 'hi-en'), for the arena + analytics language filters."""
+    db = _db()
+    langs = set()
+    for doc in db.collection(TTS_COLLECTION).where("source", "==", "sxs_auto").stream():
+        lg = (doc.to_dict().get("language") or "").strip().lower()
+        if lg:
+            langs.add(lg)
+    return {"status": "success", "languages": sorted(langs)}
 
 
 class TtsVoteRequest(BaseModel):
@@ -353,14 +370,20 @@ async def tts_vote(req: TtsVoteRequest):
 # Stats / leaderboard / reports
 # ===================================================================
 @router.get("/stats")
-async def tts_stats(ldap: Optional[str] = Query(None)):
-    """Win rates + per-metric averages for Gemini vs ElevenLabs."""
+async def tts_stats(ldap: Optional[str] = Query(None), language: Optional[str] = Query(None)):
+    """Win rates + per-metric averages for Gemini vs ElevenLabs.
+    Optional `language` filter restricts to jobs tagged with that language code."""
     db = _db()
     jobs = {
         d.id: d.to_dict()
         for d in db.collection(TTS_COLLECTION).where("source", "==", "sxs_auto").stream()
     }
+    lang_l = (language or "").strip().lower()
+    if lang_l:
+        jobs = {jid: j for jid, j in jobs.items() if str(j.get("language", "")).strip().lower() == lang_l}
     votes = [d.to_dict() for d in db.collection(TTS_VOTES_COLLECTION).stream()]
+    if lang_l:
+        votes = [v for v in votes if v.get("job_id") in jobs]
 
     def _avg_latency():
         lat: Dict[str, dict] = {}
@@ -509,6 +532,11 @@ SUPPORTED_LANGUAGES = [
     {"code": "te", "name": "Telugu"}, {"code": "mr", "name": "Marathi"},
     {"code": "bn", "name": "Bangla"}, {"code": "ms", "name": "Malay"},
     {"code": "fil", "name": "Filipino"},
+    # Mixed / code-switched codes (auto-tagged by gemini-3.5-flash; also selectable)
+    {"code": "hi-en", "name": "Hinglish (Hindi + English)"},
+    {"code": "en-es", "name": "Spanglish (English + Spanish)"},
+    {"code": "zh-en", "name": "Chinese + English"},
+    {"code": "ta-en", "name": "Tanglish (Tamil + English)"},
 ]
 
 

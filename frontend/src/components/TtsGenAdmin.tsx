@@ -237,6 +237,7 @@ export default function TtsGenAdmin() {
                   <option key={l.code} value={l.code}>{l.name} ({l.code})</option>
                 ))}
               </select>
+              <p className="text-[10px] text-gray-600 leading-relaxed px-1">Leave on Auto-detect — language is auto-tagged by gemini-3.5-flash (incl. mixed like hi-en).</p>
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1">Multi-speaker</label>

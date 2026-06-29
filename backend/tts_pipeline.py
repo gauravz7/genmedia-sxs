@@ -57,9 +57,14 @@ def _categories(case: dict) -> List[str]:
     return [str(c).strip() for c in raw if str(c).strip()]
 
 
+LANG_TAGGER_MODEL = os.getenv("LANG_TAGGER_MODEL", "gemini-3.5-flash")
+
+
 def _detect_language(text: str) -> str:
-    """Auto-tag the BCP-47 language of a transcript when none was provided.
-    Uses Gemini flash; returns "" on any failure (engines still auto-detect)."""
+    """Auto-tag the language of a transcript with gemini-3.5-flash. Returns a
+    lowercase BCP-47 code, or a hyphenated mixed code (dominant first, e.g.
+    'hi-en' for Hinglish) when two languages are substantially mixed. Returns ""
+    on failure (the TTS engines still auto-detect at synthesis time)."""
     text = (text or "").strip()
     if not text:
         return ""
@@ -67,15 +72,19 @@ def _detect_language(text: str) -> str:
         from google import genai
         client = genai.Client(vertexai=True, project=GCP_PROJECT_ID, location="global")
         r = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=LANG_TAGGER_MODEL,
             contents=(
-                "Identify the dominant language of the text below. Respond with ONLY "
-                "its BCP-47 code (e.g. en, ja, zh, ko, fr, es). No other words.\n\n"
-                f"Text: {text[:600]}"
+                "You are a language identifier. Identify the language of the text below "
+                "and respond with ONLY a lowercase BCP-47 code — no other words.\n"
+                "- Single language: one code (e.g. en, ja, zh, ko, fr, hi, es).\n"
+                "- If two languages are substantially mixed / code-switched (e.g. Hinglish "
+                "= Hindi + English), return both codes joined by a hyphen, dominant first "
+                "(e.g. hi-en, en-es).\n\n"
+                f"Text: {text[:800]}"
             ),
         )
         code = (getattr(r, "text", "") or "").strip().split()[0].lower()
-        code = re.sub(r"[^a-z-]", "", code)[:8]
+        code = re.sub(r"[^a-z-]", "", code)[:12].strip("-")
         return code
     except Exception:
         return ""
