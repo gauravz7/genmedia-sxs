@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 
 from providers.fal_provider import _ensure_accessible_to_fal
 from util.gcs_utils import upload_from_url
-from util.ratelimit import aretry
+from util.ratelimit import limited
 
 load_dotenv()
 
@@ -138,7 +138,7 @@ async def generate_gpt_image(
         else:
             slug = GPT_IMAGE_T2I_SLUG
 
-        result = await aretry(lambda: fal_client.subscribe_async(slug, arguments=arguments))
+        result = await limited("fal", lambda: fal_client.subscribe_async(slug, arguments=arguments))
 
         image_url = _extract_image_url(result)
         if not image_url:

@@ -31,7 +31,7 @@ import requests
 from dotenv import load_dotenv
 
 from util.gcs_utils import upload_from_bytes
-from util.ratelimit import retry as _retry
+from util.ratelimit import retry as _retry, gate
 
 load_dotenv()
 
@@ -217,7 +217,8 @@ async def generate_elevenlabs_tts(
     start = time.time()
     voice_id = _resolve_voice(voice, language)
     try:
-        mp3, model_used = await asyncio.to_thread(_synthesize, text, voice_id, speakers, style_prompt)
+        async with gate("elevenlabs"):  # cap concurrent ElevenLabs requests
+            mp3, model_used = await asyncio.to_thread(_synthesize, text, voice_id, speakers, style_prompt)
         safe_id = "".join(c if c.isalnum() else "-" for c in str(case_id)).strip("-").lower() or "case"
         filename = f"audio/tts_elevenlabs_{safe_id}_{int(time.time()*1000)}.mp3"
         gcs_url = upload_from_bytes(mp3, filename, content_type="audio/mpeg")

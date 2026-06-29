@@ -329,7 +329,7 @@ async def process_batch(pairs: List[tuple]) -> List[str]:
 
     Concurrency capped at 2 cases at a time (each case fans out to 2 models).
     """
-    sem = asyncio.Semaphore(2)
+    sem = asyncio.Semaphore(int(os.getenv("IMAGE_CONCURRENCY", "3")))
 
     async def _run(job_id: str, case: dict):
         async with sem:

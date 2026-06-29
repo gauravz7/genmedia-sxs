@@ -45,6 +45,7 @@ from google import genai
 from google.genai import types
 
 from util.gcs_utils import upload_from_bytes
+from util.ratelimit import gate
 
 load_dotenv()
 
@@ -236,7 +237,8 @@ async def generate_gemini_tts(
     last_err: Optional[str] = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            pcm = await asyncio.to_thread(_synthesize_once, prompt_text, speech_config)
+            async with gate("gemini_tts"):  # cap concurrent Gemini-TTS requests
+                pcm = await asyncio.to_thread(_synthesize_once, prompt_text, speech_config)
             wav_bytes = _pcm_to_wav(pcm)
             safe_id = "".join(c if c.isalnum() else "-" for c in str(case_id)).strip("-").lower() or "case"
             filename = f"audio/tts_gemini_{safe_id}_{int(time.time()*1000)}.wav"

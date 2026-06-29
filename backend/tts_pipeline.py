@@ -288,7 +288,7 @@ async def process_tts_batch(pairs: List[tuple]) -> List[str]:
 
     Concurrency capped at 2 cases at a time (each case fans out to 2 engines).
     """
-    sem = asyncio.Semaphore(2)
+    sem = asyncio.Semaphore(int(os.getenv("TTS_CONCURRENCY", "3")))
 
     async def _run(job_id: str, case: dict):
         async with sem:

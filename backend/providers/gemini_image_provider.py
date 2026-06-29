@@ -40,7 +40,7 @@ from google import genai
 from google.genai import types
 
 from util.gcs_utils import download_blob_to_bytes, upload_from_bytes
-from util.ratelimit import aretry
+from util.ratelimit import limited
 
 load_dotenv()
 
@@ -191,12 +191,13 @@ async def generate_gemini_image(
         for cfg in configs:
             for attempt in range(3):
                 try:
-                    resp = await aretry(
+                    resp = await limited(
+                        "gemini_image",
                         lambda cfg=cfg: asyncio.to_thread(
                             lambda: client.models.generate_content(
                                 model=model, contents=contents, config=cfg
                             )
-                        )
+                        ),
                     )
                 except Exception as ge:
                     last_text = f"config error: {ge}"
