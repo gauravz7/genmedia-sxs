@@ -37,11 +37,10 @@ async def main():
             tags = None
             try:
                 tags = await generate_tags_with_gemini(prompt, s_img, e_img, refs)
-            except Exception:
-                try:  # invalid/expired reference image -> tag from text only
+                if not tags:  # invalid image -> returns [] -> retry text-only
                     tags = await generate_tags_with_gemini(prompt)
-                except Exception as e:
-                    print(f"[retag] error {coll}/{jid}: {e}", flush=True)
+            except Exception as e:
+                print(f"[retag] error {coll}/{jid}: {e}", flush=True)
             if tags:
                 _client().collection(coll).document(jid).update({"categories": tags})
                 done["ok"] += 1
