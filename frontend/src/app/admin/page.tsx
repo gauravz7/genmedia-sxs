@@ -556,7 +556,7 @@ export default function AdminConsole() {
 
           <div className="flex items-center space-x-2 bg-white/[0.03] border border-white/10 rounded-full p-1 shadow-inner">
             {[
-              { id: 'generate', label: 'Generate (JSON)', icon: <UploadCloud className="w-4 h-4" /> },
+              { id: 'generate', label: 'Video Generation', icon: <UploadCloud className="w-4 h-4" /> },
               { id: 'image-gen', label: 'Image Generation', icon: <ImageIcon className="w-4 h-4" /> },
               { id: 'tts-gen', label: 'TTS Generation', icon: <AudioLines className="w-4 h-4" /> },
               { id: 'generations', label: 'Generations', icon: <Eye className="w-4 h-4" /> },
@@ -637,12 +637,12 @@ export default function AdminConsole() {
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
               <div>
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-bold uppercase tracking-widest mb-4">
-                  <UploadCloud className="w-3.5 h-3.5" /> Generation Pipeline
+                  <UploadCloud className="w-3.5 h-3.5" /> Video Generation
                 </div>
                 <h2 className="text-4xl md:text-5xl font-light text-white mb-2 tracking-tight leading-tight">
-                  Generate from <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">Cases JSON</span>
+                  Video <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">Generation</span>
                 </h2>
-                <p className="text-gray-500 text-sm">Upload a cases JSON (same schema as SxS) plus referenced assets. Each active model matching a case&apos;s modality runs automatically.</p>
+                <p className="text-gray-500 text-sm">Upload a cases JSON (T2V / I2V / R2V) plus referenced assets. Each active video model matching a case&apos;s modality runs automatically. (Image &amp; TTS generation are in their own tabs.)</p>
               </div>
             </div>
 
