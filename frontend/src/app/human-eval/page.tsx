@@ -90,8 +90,10 @@ export default function HumanEval() {
     fetchTags();
     const savedVotes = localStorage.getItem('project_pulse_votes');
     const savedHistory = localStorage.getItem('project_pulse_history');
+    const savedLdap = localStorage.getItem('project_pulse_ldap') || localStorage.getItem('pp_ldap');
     if (savedVotes) setVotesCount(parseInt(savedVotes));
     if (savedHistory) setHistory(JSON.parse(savedHistory));
+    if (savedLdap) setLdap(savedLdap);
 
     fetch(`${API_BASE_URL}/api/sxs/leaderboard/users`)
       .then(res => res.json())
@@ -167,6 +169,11 @@ export default function HumanEval() {
 
   useEffect(() => {
     if (ldap) {
+      // Persist so the Analytics 10-vote gate (and other pages) can identify the voter.
+      if (typeof window !== "undefined") {
+        localStorage.setItem('project_pulse_ldap', ldap);
+        localStorage.setItem('pp_ldap', ldap);
+      }
       fetch(`${API_BASE_URL}/api/sxs/stats?ldap=${ldap}`)
         .then(res => res.json())
         .then(data => {

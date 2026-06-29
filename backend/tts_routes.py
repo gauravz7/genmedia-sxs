@@ -459,7 +459,27 @@ async def tts_voices():
             "default": DEFAULT_VOICE_NAME,
             "voices": [{"name": k, "voice_id": v} for k, v in VOICE_MAP.items()],
         },
+        "languages": SUPPORTED_LANGUAGES,
     }
+
+
+# BCP-47 languages supported by Gemini TTS (curated common subset for the
+# dropdown). Empty selection => backend auto-detects from the transcript.
+SUPPORTED_LANGUAGES = [
+    {"code": "en", "name": "English"}, {"code": "ja", "name": "Japanese"},
+    {"code": "zh", "name": "Chinese (Mandarin)"}, {"code": "ko", "name": "Korean"},
+    {"code": "es", "name": "Spanish"}, {"code": "fr", "name": "French"},
+    {"code": "de", "name": "German"}, {"code": "it", "name": "Italian"},
+    {"code": "pt", "name": "Portuguese"}, {"code": "hi", "name": "Hindi"},
+    {"code": "ar", "name": "Arabic"}, {"code": "ru", "name": "Russian"},
+    {"code": "id", "name": "Indonesian"}, {"code": "vi", "name": "Vietnamese"},
+    {"code": "th", "name": "Thai"}, {"code": "tr", "name": "Turkish"},
+    {"code": "nl", "name": "Dutch"}, {"code": "pl", "name": "Polish"},
+    {"code": "uk", "name": "Ukrainian"}, {"code": "ta", "name": "Tamil"},
+    {"code": "te", "name": "Telugu"}, {"code": "mr", "name": "Marathi"},
+    {"code": "bn", "name": "Bangla"}, {"code": "ms", "name": "Malay"},
+    {"code": "fil", "name": "Filipino"},
+]
 
 
 @router.get("/report.json")

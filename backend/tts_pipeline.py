@@ -50,6 +50,30 @@ def _mode(case: dict) -> str:
     return str(case.get("mode") or "single").strip().lower()
 
 
+def _detect_language(text: str) -> str:
+    """Auto-tag the BCP-47 language of a transcript when none was provided.
+    Uses Gemini flash; returns "" on any failure (engines still auto-detect)."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    try:
+        from google import genai
+        client = genai.Client(vertexai=True, project=GCP_PROJECT_ID, location="global")
+        r = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=(
+                "Identify the dominant language of the text below. Respond with ONLY "
+                "its BCP-47 code (e.g. en, ja, zh, ko, fr, es). No other words.\n\n"
+                f"Text: {text[:600]}"
+            ),
+        )
+        code = (getattr(r, "text", "") or "").strip().split()[0].lower()
+        code = re.sub(r"[^a-z-]", "", code)[:8]
+        return code
+    except Exception:
+        return ""
+
+
 def _speakers(case: dict) -> Optional[List[dict]]:
     sp = case.get("speakers")
     if isinstance(sp, list) and sp:
@@ -96,6 +120,18 @@ def create_tts_job(case: dict, batch_id: Optional[str] = None) -> str:
     case_id = case.get("id", "case")
     job_id = f"tts_{_slug(case_id)}_{int(time.time()*1000)}_{random.randint(100,999)}"
 
+    # Auto-tag language when not supplied, and feed it back into the case so both
+    # engines receive the hint during generation.
+    provided_lang = (case.get("language") or "").strip()
+    autodetected = False
+    if provided_lang:
+        lang = provided_lang
+    else:
+        lang = _detect_language(case.get("text", ""))
+        autodetected = bool(lang)
+        if lang:
+            case["language"] = lang
+
     # Randomize which engine is the "A" side for blind voting.
     engines = [ENGINE_GEMINI, ENGINE_ELEVEN]
     random.shuffle(engines)
@@ -115,7 +151,8 @@ def create_tts_job(case: dict, batch_id: Optional[str] = None) -> str:
         "mode": _mode(case),
         "voice": case.get("voice", ""),
         "speakers": _speakers(case) or [],
-        "language": case.get("language", ""),
+        "language": lang,
+        "language_autodetected": autodetected,
         "timestamp": time.time(),
         "side_map": side_map,
         "results": {

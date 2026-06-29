@@ -1,12 +1,12 @@
 "use client";
 
+// Mirror the home-page tiles exactly (same set, same order).
 const LINKS: { id: string; label: string; href: string }[] = [
-  { id: "analytics", label: "Analytics", href: "/analytics" },
+  { id: "human-eval", label: "Video Eval", href: "/human-eval" },
+  { id: "image-sxs", label: "Image Eval", href: "/image-sxs" },
+  { id: "tts", label: "TTS Eval", href: "/tts-sxs" },
   { id: "ai-evals", label: "AI Evals", href: "/ai-evals" },
-  { id: "human-eval", label: "Human Eval", href: "/human-eval" },
-  { id: "sxs", label: "SxS", href: "/sxs" },
-  { id: "image-sxs", label: "Image SxS", href: "/image-sxs" },
-  { id: "tts", label: "TTS", href: "/tts-sxs" },
+  { id: "analytics", label: "Analytics", href: "/analytics" },
   { id: "admin", label: "Admin", href: "/admin" },
 ];
 

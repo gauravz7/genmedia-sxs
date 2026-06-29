@@ -50,6 +50,7 @@ interface TtsJob {
   mode?: string;
   voice?: string;
   language?: string;
+  language_autodetected?: boolean;
   results?: Record<string, ResultEntry>;
   side_map?: Record<string, string>;
   ai_eval?: any;
@@ -202,7 +203,7 @@ function LoginCard({
 // Admin: compose form + cases JSON upload + job table
 // ===================================================================
 function AdminPanel() {
-  const [voices, setVoices] = useState<{ gemini: string[]; elevenlabs: { name: string }[] }>({ gemini: [], elevenlabs: [] });
+  const [voices, setVoices] = useState<{ gemini: string[]; elevenlabs: { name: string }[]; languages: { code: string; name: string }[] }>({ gemini: [], elevenlabs: [], languages: [] });
 
   const [text, setText] = useState("");
   const [voice, setVoice] = useState("Kore");
@@ -228,7 +229,7 @@ function AdminPanel() {
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/tts/voices`)
       .then((r) => r.json())
-      .then((d) => setVoices({ gemini: d?.gemini?.voices || [], elevenlabs: d?.elevenlabs?.voices || [] }))
+      .then((d) => setVoices({ gemini: d?.gemini?.voices || [], elevenlabs: d?.elevenlabs?.voices || [], languages: d?.languages || [] }))
       .catch(() => {});
   }, []);
 
@@ -383,9 +384,14 @@ function AdminPanel() {
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1">Language (optional)</label>
-              <input value={language} onChange={(e) => setLanguage(e.target.value)} placeholder="auto (e.g. en, ja, hi)"
-                className="w-full bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40" />
+              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1">Language</label>
+              <select value={language} onChange={(e) => setLanguage(e.target.value)}
+                className="w-full bg-[#06080b] border border-white/10 rounded-2xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">
+                <option value="">Auto-detect</option>
+                {voices.languages.map((l) => (
+                  <option key={l.code} value={l.code}>{l.name} ({l.code})</option>
+                ))}
+              </select>
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1">Multi-speaker</label>
@@ -487,7 +493,7 @@ function JobCard({ job, onRetry, onDelete }: { job: TtsJob; onRetry: () => void;
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 mb-2">
             <span className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-black uppercase tracking-widest">{job.mode || "single"}</span>
-            {job.language && <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-400 text-[10px] font-black uppercase tracking-widest">{job.language}</span>}
+            {job.language && <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-400 text-[10px] font-black uppercase tracking-widest">{job.language}{job.language_autodetected ? " · auto" : ""}</span>}
           </div>
           <p className="text-gray-300 font-light text-sm whitespace-pre-wrap">&ldquo;{(job.text || job.prompt || "").slice(0, 240)}&rdquo;</p>
           {job.style_prompt && <p className="text-gray-500 text-xs mt-1 italic">Style: {job.style_prompt}</p>}

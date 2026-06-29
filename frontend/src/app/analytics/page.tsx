@@ -27,9 +27,29 @@ export default function Analytics() {
   const [globalLeaderboard, setGlobalLeaderboard] = useState<any[]>([]);
   // 10-vote access gate (counts votes across video + image + tts).
   const [gate, setGate] = useState<{ checked: boolean; unlocked: boolean; count: number; required: number }>({ checked: false, unlocked: false, count: 0, required: 10 });
+  const [gateLdap, setGateLdap] = useState("");
 
   // Personal ldap drives the gate. Video uses project_pulse_ldap; image/tts use pp_ldap.
   const ldap = (typeof window !== "undefined" && (localStorage.getItem("project_pulse_ldap") || localStorage.getItem("pp_ldap"))) || "global";
+
+  // Count this user's votes across every modality and unlock if >= required.
+  const checkGate = (ld: string) => {
+    fetch(`${API_BASE_URL}/api/votes/count?ldap=${encodeURIComponent(ld)}`)
+      .then((res) => res.json())
+      .then((data) => setGate({ checked: true, unlocked: !!data?.unlocked, count: data?.count ?? 0, required: data?.required ?? 10 }))
+      .catch(() => setGate({ checked: true, unlocked: false, count: 0, required: 10 }));
+  };
+
+  const applyGateLdap = () => {
+    const ld = gateLdap.trim().toLowerCase();
+    if (!ld) return;
+    if (typeof window !== "undefined") {
+      localStorage.setItem("project_pulse_ldap", ld);
+      localStorage.setItem("pp_ldap", ld);
+    }
+    setGate((g) => ({ ...g, checked: false }));
+    checkGate(ld);
+  };
 
   const fetchStats = (tag: string) => {
     setIsLoading(true);
@@ -54,10 +74,8 @@ export default function Analytics() {
       const savedHistory = localStorage.getItem('project_pulse_history');
       if (savedHistory) setHistory(JSON.parse(savedHistory));
     } catch { /* ignore */ }
-    fetch(`${API_BASE_URL}/api/votes/count?ldap=${encodeURIComponent(ldap)}`)
-      .then(res => res.json())
-      .then(data => setGate({ checked: true, unlocked: !!data?.unlocked, count: data?.count ?? 0, required: data?.required ?? 10 }))
-      .catch(() => setGate({ checked: true, unlocked: false, count: 0, required: 10 }));
+    if (ldap && ldap !== "global") setGateLdap(ldap);
+    checkGate(ldap);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -93,8 +111,24 @@ export default function Analytics() {
             <h1 className="text-4xl md:text-5xl font-black tracking-tight">Analytics is locked</h1>
             <p className="text-gray-400 mt-4 text-lg font-light">
               Cast <span className="font-black text-white">{gate.required}</span> blind votes across any modality to unlock the aggregated leaderboards and radar charts.
-              {ldap === "global" && " Set your ldap on any eval page so your votes are counted."}
             </p>
+          </div>
+
+          {/* Enter ldap to count your existing votes across all modalities */}
+          <div className="max-w-sm mx-auto flex items-center gap-2">
+            <input
+              value={gateLdap}
+              onChange={(e) => setGateLdap(e.target.value.toLowerCase())}
+              onKeyDown={(e) => { if (e.key === "Enter") applyGateLdap(); }}
+              placeholder="enter your ldap"
+              className="flex-1 bg-[#0b0e14] border border-white/10 rounded-2xl px-5 py-3 text-sm text-white placeholder-gray-600 font-mono text-center focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+            />
+            <button
+              onClick={applyGateLdap}
+              className="px-5 py-3 rounded-2xl bg-white text-[#020408] font-black uppercase text-xs tracking-widest hover:bg-gray-200 transition-colors"
+            >
+              Check
+            </button>
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-gray-500">
