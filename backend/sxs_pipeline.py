@@ -399,12 +399,15 @@ async def process_job(job_id: str, case: dict) -> str:
     try:
         if not (case.get("categories") or case.get("tags")):
             from providers.vertex_provider import generate_tags_with_gemini
-            tags = await generate_tags_with_gemini(
-                case.get("prompt", "") or "",
-                case.get("start_image_url"),
-                case.get("end_image_url"),
-                case.get("reference_images"),
-            )
+            try:
+                tags = await generate_tags_with_gemini(
+                    case.get("prompt", "") or "",
+                    case.get("start_image_url"),
+                    case.get("end_image_url"),
+                    case.get("reference_images"),
+                )
+            except Exception:  # invalid/expired reference image -> text-only
+                tags = await generate_tags_with_gemini(case.get("prompt", "") or "")
             if tags:
                 _get_firestore_client().collection(EVAL_COLLECTION).document(job_id).update(
                     {"categories": tags}

@@ -34,13 +34,17 @@ async def main():
 
     async def run(coll, jid, prompt, s_img, e_img, refs):
         async with sem:
+            tags = None
             try:
                 tags = await generate_tags_with_gemini(prompt, s_img, e_img, refs)
-                if tags:
-                    _client().collection(coll).document(jid).update({"categories": tags})
-                    done["ok"] += 1
-            except Exception as e:
-                print(f"[retag] error {coll}/{jid}: {e}", flush=True)
+            except Exception:
+                try:  # invalid/expired reference image -> tag from text only
+                    tags = await generate_tags_with_gemini(prompt)
+                except Exception as e:
+                    print(f"[retag] error {coll}/{jid}: {e}", flush=True)
+            if tags:
+                _client().collection(coll).document(jid).update({"categories": tags})
+                done["ok"] += 1
             done["n"] += 1
             if done["n"] % 20 == 0:
                 print(f"[retag] {done['n']}/{len(targets)} (tagged {done['ok']})", flush=True)
