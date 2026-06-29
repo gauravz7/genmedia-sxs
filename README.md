@@ -107,6 +107,74 @@ gcloud run services update genmedia-sxs \
   --region us-central1
 ```
 
+## Input Formats (Video / Image / Speech)
+
+All three modalities accept a **JSON array** of case objects, or `{"cases": [ … ]}`.
+A case is identified by **`customer` + `id`** — already-completed cases are skipped on
+re-run (dedup), and only fully-failed/incomplete ones are regenerated.
+
+### 🎬 Video SxS — Seedance 2.0 vs Gemini Omni
+Upload via `/sxs` (GCS path or file upload) or admin **Generate (JSON)** → `POST /api/admin/generate-json`.
+Each case runs on the active models matching its modality (Seedance per-modality + Omni).
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `prompt` | **yes** | generation prompt |
+| `modality` | **yes** | `T2V`, `I2V`, `R2V`. Also accepts `V2V`, `FLF2V (first & last frame locked)`, `Ref2V`. Classification: FLF2V / first-frame → **i2v**; V2V / Ref2V → **r2v** |
+| `id` | recommended | case id (dedup key with `customer`) |
+| `customer` | optional | grouping key |
+| `reference_images` | conditional | array of `gs://` / `https://` URLs. Required for **I2V** (first frame; a 2nd image = last frame for FLF2V) and **R2V** |
+| `reference_videos` | conditional | array of video URLs. For **V2V** (source video) / R2V |
+| `aspect_ratio` | optional | `16:9` (default) or `9:16` |
+| `duration` | optional | integer seconds 4–15 (default 8) |
+
+```json
+{
+  "customer": "opus", "id": "V-1", "modality": "I2V",
+  "prompt": "A green frog hops right onto a second lily pad, then a third.",
+  "reference_images": ["gs://project-pulse/sxs/opus/inputs/ref1.png"],
+  "reference_videos": [], "aspect_ratio": "16:9", "duration": 8
+}
+```
+
+### 🖼️ Image SxS — Gemini Image vs GPT-image
+Sample: `backend/image_cases.sample.json`.
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `prompt` | **yes** | image prompt |
+| `id` | recommended | case id |
+| `mode` | optional | `t2i` (default) or `i2i` |
+| `input_image` (or `input_images`) | conditional | **required for `i2i`** — `gs://` / path |
+| `matchup` | optional | model pair; default = pair #1. One of: `gemini-3.1-flash-image_vs_gpt2-medium`, `gemini-3-pro-image_vs_gpt2-high`, `instant-ramen_vs_gpt2-low` |
+| `customer`, `categories` / `tags` | optional | metadata |
+
+```json
+{ "id": "img3", "mode": "i2i", "prompt": "Make it snow heavily and add a warm sunset glow",
+  "input_image": "refs/koi.png", "matchup": "gemini-3-pro-image_vs_gpt2-high" }
+```
+
+### 🔊 Speech / TTS SxS — Gemini TTS vs ElevenLabs
+Sample: `backend/tts_cases.sample.json`.
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `text` | **yes** | transcript; supports inline cues like `[cheerful]`, `[whispers]`, `[pause]` |
+| `id` | recommended | case id |
+| `voice` | optional | Gemini voice name (default `Kore`; e.g. Charon, Puck) |
+| `style_prompt` | optional | delivery / tone direction |
+| `language` | optional | e.g. `en`; auto-detected from `text` if omitted |
+| `mode` | optional | `single` (default) or `multi` |
+| `speakers` | conditional | **required for `multi`**: `[{"speaker":"Joe","voice":"Kore"}, …]` |
+| `customer`, `categories` / `tags` | optional | metadata |
+
+```json
+{ "id": "t3", "mode": "multi",
+  "text": "Joe: Hey Jane, how's the launch going?\nJane: [excited] Better than we imagined!",
+  "speakers": [{ "speaker": "Joe", "voice": "Kore" }, { "speaker": "Jane", "voice": "Puck" }],
+  "style_prompt": "Casual chat between two startup co-founders." }
+```
+
 ## API Endpoints
 
 | Endpoint | Method | Description |

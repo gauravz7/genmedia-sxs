@@ -30,7 +30,7 @@ GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "vital-octagon-19612")
 
 # Stable engine identifiers (used in side_map + leaderboard).
 ENGINE_GEMINI = "gemini-3.1-flash-tts-preview"
-ENGINE_ELEVEN = "elevenlabs-multilingual-v2"
+ENGINE_ELEVEN = "elevenlabs-v3"
 
 ENGINE_LABELS = {ENGINE_GEMINI: GEMINI_LABEL, ENGINE_ELEVEN: ELEVEN_LABEL}
 
