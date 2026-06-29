@@ -107,6 +107,32 @@ gcloud run services update genmedia-sxs \
   --region us-central1
 ```
 
+## Input Format (Video SxS — Seedance 2.0 vs Gemini Omni)
+
+Upload a **JSON array** of cases (or `{"cases": [ … ]}`) via `/sxs` (GCS path or file
+upload) or admin **Generate (JSON)** → `POST /api/admin/generate-json`. A case is keyed by
+**`customer` + `id`**; already-completed cases are skipped on re-run (dedup).
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `prompt` | **yes** | generation prompt |
+| `modality` | **yes** | `T2V`, `I2V`, `R2V` (also `V2V`, `FLF2V (...)`, `Ref2V`). FLF2V / first-frame → **i2v**; V2V / Ref2V → **r2v** |
+| `id` | recommended | case id (dedup key with `customer`) |
+| `customer` | optional | grouping key |
+| `reference_images` | conditional | `gs://`/`https://` URLs. Required for **I2V** (first frame; 2nd = last frame for FLF2V) and **R2V** |
+| `reference_videos` | conditional | for **V2V** (source video) / R2V |
+| `aspect_ratio` | optional | `16:9` (default) or `9:16` |
+| `duration` | optional | integer seconds 4–15 (default 8) |
+
+```json
+{
+  "customer": "opus", "id": "V-1", "modality": "I2V",
+  "prompt": "A green frog hops right onto a second lily pad, then a third.",
+  "reference_images": ["gs://project-pulse/sxs/opus/inputs/ref1.png"],
+  "reference_videos": [], "aspect_ratio": "16:9", "duration": 8
+}
+```
+
 ## API Endpoints
 
 | Endpoint | Method | Description |

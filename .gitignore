@@ -1,0 +1,57 @@
+# ───────── Secrets / credentials (NEVER commit) ─────────
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+*.key
+private.key
+*.pem
+*.p12
+claude_sa.json
+service_keys.json
+keys.json
+signing_keys.json
+signing_keys.json.bak
+*.json.bak
+**/claude_sa.json
+**/service_keys.json
+**/keys.json
+**/signing_keys.json
+client_secret*.json
+credentials.json
+service_account*.json
+*-sa.json
+.admin_pass.local
+
+# ───────── Python ─────────
+**/venv/
+**/.venv/
+**/venv.bak/
+**/__pycache__/
+*.pyc
+
+# ───────── Node / Next.js ─────────
+**/node_modules/
+**/.next/
+**/out/
+**/tsconfig.tsbuildinfo
+
+# ───────── Build / runtime junk ─────────
+*.pid
+*.log
+*.logs
+
+# ───────── Local scratch / media (review before committing) ─────────
+*.png
+*.jpeg
+*.jpg
+*.mp4
+.playwright-mcp/
+backups/
+backend_backup/
+frontend_backup/
+
+# macOS AppleDouble / metadata
+._*
+.DS_Store
