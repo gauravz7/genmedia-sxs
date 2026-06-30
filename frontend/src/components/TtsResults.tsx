@@ -30,29 +30,36 @@ export default function TtsResults() {
   const [loading, setLoading] = useState(true);
   const [language, setLanguage] = useState("");
   const [availableLanguages, setAvailableLanguages] = useState<string[]>([]);
+  const [tag, setTag] = useState("");
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
 
-  // Initial load: stats (global), user leaderboard, and the language filter list.
+  // Initial load: stats (global), user leaderboard, language + tag filter lists.
   useEffect(() => {
     Promise.all([
       fetch(`${API_BASE_URL}/api/tts/stats`).then((r) => r.json()).catch(() => null),
       fetch(`${API_BASE_URL}/api/tts/leaderboard/users`).then((r) => r.json()).catch(() => null),
       fetch(`${API_BASE_URL}/api/tts/languages`).then((r) => r.json()).catch(() => null),
-    ]).then(([s, u, l]) => {
+      fetch(`${API_BASE_URL}/api/tts/tags`).then((r) => r.json()).catch(() => null),
+    ]).then(([s, u, l, t]) => {
       setStats(s?.global || null);
       setUsers(u?.leaderboard || []);
       if (Array.isArray(l?.languages)) setAvailableLanguages(l.languages);
+      if (Array.isArray(t?.tags)) setAvailableTags(t.tags);
       setLoading(false);
     });
   }, []);
 
-  // Refetch stats whenever the language filter changes.
+  // Refetch stats whenever the language or tag filter changes.
   useEffect(() => {
-    const qs = language ? `?language=${encodeURIComponent(language)}` : "";
+    const params = new URLSearchParams();
+    if (language) params.set("language", language);
+    if (tag) params.set("tag", tag);
+    const qs = params.toString() ? `?${params.toString()}` : "";
     fetch(`${API_BASE_URL}/api/tts/stats${qs}`)
       .then((r) => r.json())
       .catch(() => null)
       .then((s) => setStats(s?.global || null));
-  }, [language]);
+  }, [language, tag]);
 
   if (loading) return (
     <div className="py-24 flex flex-col items-center justify-center text-gray-500 gap-4 bg-white/[0.02] border border-white/5 rounded-[40px]">
@@ -90,6 +97,18 @@ export default function TtsResults() {
             <option key={code} value={code}>{code}</option>
           ))}
         </select>
+        {availableTags.length > 0 && (
+          <select
+            value={tag}
+            onChange={(e) => setTag(e.target.value)}
+            className={`px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${tag ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300" : "bg-white/5 border-white/10 text-gray-500 hover:text-white"}`}
+          >
+            <option value="">All tags</option>
+            {availableTags.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Win-rate cards per engine */}

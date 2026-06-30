@@ -390,14 +390,24 @@ async def image_vote(req: ImageVoteRequest):
 # Stats / leaderboard / reports
 # ===================================================================
 @router.get("/api/image/stats")
-async def image_stats(ldap: Optional[str] = Query(None)):
-    """Win rates + per-metric averages per model, and per-matchup breakdown."""
+async def image_stats(ldap: Optional[str] = Query(None), tag: Optional[str] = Query(None)):
+    """Win rates + per-metric averages per model, and per-matchup breakdown.
+
+    Optional `tag` filters to jobs whose categories include that tag."""
     db = _db()
     jobs = {
         d.id: d.to_dict()
         for d in db.collection(IMAGE_COLLECTION).where("source", "==", "sxs_auto").stream()
     }
+    tag_l = (tag or "").strip().lower()
+    if tag_l:
+        jobs = {
+            jid: j for jid, j in jobs.items()
+            if tag_l in [str(c).lower() for c in (j.get("categories") or [])]
+        }
     votes = [d.to_dict() for d in db.collection(IMAGE_VOTES_COLLECTION).stream()]
+    if tag_l:
+        votes = [v for v in votes if v.get("job_id") in jobs]
 
     def _avg_latency():
         lat: Dict[str, dict] = {}

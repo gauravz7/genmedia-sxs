@@ -370,9 +370,11 @@ async def tts_vote(req: TtsVoteRequest):
 # Stats / leaderboard / reports
 # ===================================================================
 @router.get("/stats")
-async def tts_stats(ldap: Optional[str] = Query(None), language: Optional[str] = Query(None)):
+async def tts_stats(ldap: Optional[str] = Query(None), language: Optional[str] = Query(None),
+                    tag: Optional[str] = Query(None)):
     """Win rates + per-metric averages for Gemini vs ElevenLabs.
-    Optional `language` filter restricts to jobs tagged with that language code."""
+    Optional `language` filter restricts to jobs tagged with that language code.
+    Optional `tag` filters to jobs whose categories include that tag."""
     db = _db()
     jobs = {
         d.id: d.to_dict()
@@ -381,8 +383,14 @@ async def tts_stats(ldap: Optional[str] = Query(None), language: Optional[str] =
     lang_l = (language or "").strip().lower()
     if lang_l:
         jobs = {jid: j for jid, j in jobs.items() if str(j.get("language", "")).strip().lower() == lang_l}
+    tag_l = (tag or "").strip().lower()
+    if tag_l:
+        jobs = {
+            jid: j for jid, j in jobs.items()
+            if tag_l in [str(c).lower() for c in (j.get("categories") or [])]
+        }
     votes = [d.to_dict() for d in db.collection(TTS_VOTES_COLLECTION).stream()]
-    if lang_l:
+    if lang_l or tag_l:
         votes = [v for v in votes if v.get("job_id") in jobs]
 
     def _avg_latency():

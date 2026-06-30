@@ -285,6 +285,22 @@ async def process_job(job_id: str, case: dict) -> str:
         update[f"results.{label}"] = r
     db.collection(IMAGE_COLLECTION).document(job_id).update(update)
 
+    # Auto-tag the job from the prompt (+ input image) when no categories were
+    # supplied in the input. Stored on the shared `categories` field, so the same
+    # tags surface in human eval (arena), AI evals, and analytics.
+    try:
+        if not (job.get("categories") or []):
+            from providers.vertex_provider import generate_tags_with_gemini
+            prompt = job.get("prompt") or case.get("prompt") or ""
+            in_img = job.get("input_image") or _input_image(case) or None
+            tags = await generate_tags_with_gemini(prompt, in_img)
+            if not tags:  # invalid image -> [] -> retry text-only
+                tags = await generate_tags_with_gemini(prompt)
+            if tags:
+                db.collection(IMAGE_COLLECTION).document(job_id).update({"categories": tags})
+    except Exception as e:  # pragma: no cover
+        print(f"[image_pipeline] auto-tag failed for {job_id}: {e}")
+
     try:
         from image_evaluator import run_image_evaluation
         run_image_evaluation(job_id)

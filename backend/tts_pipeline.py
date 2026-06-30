@@ -59,6 +59,79 @@ def _categories(case: dict) -> List[str]:
 
 LANG_TAGGER_MODEL = os.getenv("LANG_TAGGER_MODEL", "gemini-3.5-flash")
 
+# --- Voice tag taxonomy -----------------------------------------------------
+# Voices are tagged along two axes: LANGUAGE (derived from the detected BCP-47
+# code) and INDUSTRY / use-case (classified from the script). The industry list
+# is a fixed, curated set of < 20 tags. Both feed the shared `categories` field
+# so the same tags surface in human eval, AI evals, and analytics.
+VOICE_INDUSTRIES = [
+    "📞 Customer Service", "📣 Advertising", "📚 Education", "🎮 Gaming",
+    "🎬 Entertainment", "📰 News & Media", "🏥 Healthcare", "💰 Finance",
+    "🛍️ Retail & E-commerce", "✈️ Travel & Hospitality", "🚗 Automotive",
+    "🍔 Food & Beverage", "💻 Technology", "🏛️ Government", "📖 Audiobook",
+    "🧘 Wellness", "⚖️ Legal", "🏠 Real Estate", "📱 Telecom",
+]  # 19 tags
+
+LANG_DISPLAY = {
+    "en": "🇬🇧 English", "hi": "🇮🇳 Hindi", "zh": "🇨🇳 Chinese", "ta": "🇮🇳 Tamil",
+    "te": "🇮🇳 Telugu", "ja": "🇯🇵 Japanese", "ko": "🇰🇷 Korean", "id": "🇮🇩 Indonesian",
+    "th": "🇹🇭 Thai", "vi": "🇻🇳 Vietnamese", "ms": "🇲🇾 Malay", "fil": "🇵🇭 Filipino",
+    "es": "🇪🇸 Spanish", "fr": "🇫🇷 French", "de": "🇩🇪 German", "pt": "🇵🇹 Portuguese",
+    "ar": "🌐 Arabic", "bn": "🇧🇩 Bengali", "ur": "🇵🇰 Urdu", "ru": "🇷🇺 Russian",
+    "it": "🇮🇹 Italian", "gu": "🇮🇳 Gujarati", "kn": "🇮🇳 Kannada", "ml": "🇮🇳 Malayalam",
+    "mr": "🇮🇳 Marathi", "pa": "🇮🇳 Punjabi",
+}
+
+
+def _language_tags(code: str) -> List[str]:
+    """Map a BCP-47 (or mixed e.g. 'hi-en') code to display language tag(s)."""
+    c = (code or "").strip().lower()
+    if not c:
+        return []
+    out: List[str] = []
+    for p in c.split("-"):
+        p = p.strip()
+        if not p:
+            continue
+        tag = LANG_DISPLAY.get(p, f"🌐 {p.upper()}")
+        if tag not in out:
+            out.append(tag)
+    return out
+
+
+def _classify_industry(text: str) -> List[str]:
+    """Pick the 1-2 best-fitting industry tags from the fixed list via gemini."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    try:
+        from google import genai
+        client = genai.Client(vertexai=True, project=GCP_PROJECT_ID, location="global")
+        lst = ", ".join(VOICE_INDUSTRIES)
+        r = client.models.generate_content(
+            model=LANG_TAGGER_MODEL,
+            contents=(
+                "You are a tagging system for voice-over / TTS scripts. From this "
+                f"fixed list:\n{lst}\n\n"
+                "Pick the 1-2 tags that best describe the script's industry / use-case.\n"
+                "Return ONLY the tags exactly as written above, comma-separated, "
+                "nothing else.\n\n"
+                f"Script: {text[:800]}"
+            ),
+        )
+        raw = (getattr(r, "text", "") or "").strip()
+        picks = [t.strip() for t in raw.split(",") if t.strip()]
+        valid = [t for t in picks if t in VOICE_INDUSTRIES]
+        return valid[:2]
+    except Exception as e:
+        print(f"[tts_pipeline] industry classify failed: {e}")
+        return []
+
+
+def _voice_categories(text: str, lang_code: str) -> List[str]:
+    """Combined language + industry tags for a voice job."""
+    return _language_tags(lang_code) + _classify_industry(text)
+
 
 def _detect_language(text: str) -> str:
     """Auto-tag the language of a transcript with gemini-3.5-flash. Returns a
@@ -162,6 +235,10 @@ def create_tts_job(case: dict, batch_id: Optional[str] = None) -> str:
         if lang:
             case["language"] = lang
 
+    # Auto-tag the voice (language + industry) when no categories were supplied.
+    provided_cats = _categories(case)
+    categories = provided_cats if provided_cats else _voice_categories(case.get("text", ""), lang)
+
     # Randomize which engine is the "A" side for blind voting.
     engines = [ENGINE_GEMINI, ENGINE_ELEVEN]
     random.shuffle(engines)
@@ -177,7 +254,7 @@ def create_tts_job(case: dict, batch_id: Optional[str] = None) -> str:
         "prompt_id": case_id,
         "text": case.get("text", ""),
         "prompt": case.get("text", ""),  # alias so generic UIs can read .prompt
-        "categories": _categories(case),
+        "categories": categories,
         "style_prompt": case.get("style_prompt", ""),
         "mode": _mode(case),
         "voice": case.get("voice", ""),

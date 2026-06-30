@@ -44,17 +44,26 @@ export default function ImageResults() {
   const [stats, setStats] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tags, setTags] = useState<string[]>([]);
+  const [selectedTag, setSelectedTag] = useState("");
+
+  // Tag pool (shared `categories` field — same tags as the arena & AI evals).
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/image/tags`).then((r) => r.json())
+      .then((d) => { if (Array.isArray(d?.tags)) setTags(d.tags); }).catch(() => {});
+  }, []);
 
   useEffect(() => {
+    const tagParam = selectedTag ? `?tag=${encodeURIComponent(selectedTag)}` : "";
     Promise.all([
-      fetch(`${API_BASE_URL}/api/image/stats`).then((r) => r.json()).catch(() => null),
+      fetch(`${API_BASE_URL}/api/image/stats${tagParam}`).then((r) => r.json()).catch(() => null),
       fetch(`${API_BASE_URL}/api/image/leaderboard/users`).then((r) => r.json()).catch(() => null),
     ]).then(([s, u]) => {
       setStats(s);
       setUsers(u?.leaderboard || []);
       setLoading(false);
     });
-  }, []);
+  }, [selectedTag]);
 
   if (loading) return <div className="py-32 flex justify-center"><div className="w-10 h-10 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin"></div></div>;
 
@@ -80,6 +89,17 @@ export default function ImageResults() {
         <span className="text-gray-700">·</span>
         <span className="text-xs font-black uppercase tracking-widest text-gray-500">{skus.length} engine{skus.length !== 1 ? "s" : ""}</span>
       </div>
+
+      {/* Tag filter */}
+      {tags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-black uppercase tracking-widest text-gray-600 mr-1">Filter by tag</span>
+          <button onClick={() => setSelectedTag("")} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${!selectedTag ? "bg-indigo-500 text-white border-indigo-500" : "bg-white/5 border-white/10 text-gray-400 hover:text-white hover:border-white/20"}`}>All</button>
+          {tags.map((t) => (
+            <button key={t} onClick={() => setSelectedTag(selectedTag === t ? "" : t)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${selectedTag === t ? "bg-indigo-500 text-white border-indigo-500" : "bg-white/5 border-white/10 text-gray-400 hover:text-white hover:border-white/20"}`}>{t}</button>
+          ))}
+        </div>
+      )}
 
       {/* Win-rate cards per engine */}
       <div className={`grid gap-6 mx-auto ${skus.length <= 2 ? "grid-cols-1 sm:grid-cols-2 max-w-2xl" : skus.length === 3 ? "grid-cols-1 sm:grid-cols-3 max-w-4xl" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 max-w-5xl"}`}>
