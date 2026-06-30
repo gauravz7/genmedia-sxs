@@ -202,20 +202,25 @@ export default function Analytics() {
   const effectiveTotal = Math.max(totalVotesCount, 1);
   const models = Object.keys(familyCounts).sort();
 
-  const buildRadarData = (mode: 't2v' | 'i2v') => {
-    const rateKey = `${mode}_rate`, totalKey = `${mode}_total`;
-    const sortedSkus = [...skus].filter((s: any) => s[totalKey] > 0).sort((a: any, b: any) => b[rateKey] - a[rateKey]).slice(0, 3);
+  // One uniform spider chart across ALL modes (t2v/i2v/r2v collapsed): for each
+  // dimension, average a model's available per-mode scores.
+  const buildRadarDataAll = () => {
+    const sortedSkus = [...skus].sort((a: any, b: any) => (b.win_rate || 0) - (a.win_rate || 0)).slice(0, 3);
     const data: any[] = [];
     DIMENSIONS.forEach(d => {
       const row: any = { subject: d.label };
-      sortedSkus.forEach((s: any) => { row[s.model_id] = (mode === 't2v' ? s.t2v_scores : s.i2v_scores)?.[d.id] || 0; });
+      sortedSkus.forEach((s: any) => {
+        const vals = ['t2v_scores', 'i2v_scores', 'r2v_scores']
+          .map((k) => s[k]?.[d.id])
+          .filter((v: any) => typeof v === 'number' && v > 0);
+        row[s.model_id] = vals.length ? vals.reduce((a: number, b: number) => a + b, 0) / vals.length : 0;
+      });
       data.push(row);
     });
     return { data, topModels: sortedSkus.map((s: any) => s.model_id) };
   };
 
-  const { data: t2vRadarData, topModels: t2vTopModels } = buildRadarData('t2v');
-  const { data: i2vRadarData, topModels: i2vTopModels } = buildRadarData('i2v');
+  const { data: radarDataAll, topModels: radarModelsAll } = buildRadarDataAll();
   const CHART_COLORS = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#60a5fa'];
 
   return (
@@ -231,7 +236,8 @@ export default function Analytics() {
             <a href="/video-sxs" className="px-6 py-3 bg-white text-[#020408] rounded-2xl font-black uppercase text-sm shadow-3xl hover:scale-105 transition-all">Back to Arena</a>
           </div>
 
-          {/* Tag Filter Bar */}
+          {/* Tag Filter Bar — video only (tags are derived from video jobs/prompts) */}
+          {modTab === "video" && (
           <div className="bg-[#0b0e14] border border-white/5 rounded-2xl p-4">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-500">
@@ -280,6 +286,7 @@ export default function Analytics() {
               </div>
             )}
           </div>
+          )}
         </header>
 
         {/* Modality tabs */}
@@ -357,27 +364,25 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Spider Charts */}
+        {/* Spider Chart — one uniform Omni vs Seedance across all modes */}
         <div className="pt-8 border-t border-white/5 mt-8">
           <h3 className="text-xl font-light text-gray-300 mb-6">Dimension Analytics</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {[{ title: 'Text-to-Video (T2V)', data: t2vRadarData, models: t2vTopModels }, { title: 'Image-to-Video (I2V)', data: i2vRadarData, models: i2vTopModels }].map(chart => (
-              <div key={chart.title} className="bg-[#0b0e14] border border-white/5 rounded-[40px] p-6 relative h-[400px]">
-                <h4 className="text-center text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">{chart.title}</h4>
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadarChart cx="50%" cy="50%" outerRadius="70%" data={chart.data}>
-                    <PolarGrid stroke="#334155" />
-                    <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                    <PolarRadiusAxis angle={30} domain={[0, 5]} tickCount={6} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} />
-                    <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '12px' }} itemStyle={{ color: '#e2e8f0' }} />
-                    <Legend wrapperStyle={{ fontSize: '10px' }} />
-                    {chart.models.map((modelId: string, idx: number) => (
-                      <Radar key={modelId} name={modelId} dataKey={modelId} stroke={CHART_COLORS[idx]} fill={CHART_COLORS[idx]} fillOpacity={0.3} />
-                    ))}
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
-            ))}
+          <div className="max-w-2xl mx-auto">
+            <div className="bg-[#0b0e14] border border-white/5 rounded-[40px] p-6 relative h-[440px]">
+              <h4 className="text-center text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">All Modes (T2V · I2V · R2V)</h4>
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarDataAll}>
+                  <PolarGrid stroke="#334155" />
+                  <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                  <PolarRadiusAxis angle={30} domain={[0, 5]} tickCount={6} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} />
+                  <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '12px' }} itemStyle={{ color: '#e2e8f0' }} />
+                  <Legend wrapperStyle={{ fontSize: '11px' }} />
+                  {radarModelsAll.map((modelId: string, idx: number) => (
+                    <Radar key={modelId} name={modelId} dataKey={modelId} stroke={CHART_COLORS[idx]} fill={CHART_COLORS[idx]} fillOpacity={0.3} />
+                  ))}
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
 

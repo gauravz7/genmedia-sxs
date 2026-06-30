@@ -135,7 +135,12 @@ function extractJobEvals(job: any): { engines: EngineEval[]; winner: string | nu
         else if (overall === bestO) tie = true;
       }
     });
-    return { engines, winner: tie ? null : winner };
+    // Core-5 is disabled for video — the Creative Director verdict is the eval,
+    // so it determines the winner (falls back to Core-5 overall for old jobs).
+    const de = job.director_eval;
+    if (de && de.winner_model) winner = prettyModel(de.winner_model);
+    else if (tie) winner = null;
+    return { engines, winner };
   }
 
   // image / tts — ai_eval has A/B sides

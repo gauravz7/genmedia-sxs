@@ -758,36 +758,9 @@ def run_auto_eval(job_id: str) -> None:
                 continue
             tasks.append((model_key, video_path))
 
-        auto_evals: Dict[str, Any] = {}
-
-        def _evaluate(model_key: str, video_path: str):
-            report = run_core5_evaluation(
-                video_path,
-                prompt,
-                ref_image_paths or None,
-                source_video_paths or None,
-            )
-            return model_key, report
-
-        if tasks:
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = [pool.submit(_evaluate, mk, vp) for mk, vp in tasks]
-                for fut in futures:
-                    try:
-                        model_key, report = fut.result()
-                    except Exception as e:
-                        print(f"[sxs_pipeline] eval error: {e}")
-                        continue
-                    if report:
-                        auto_evals[model_key] = {
-                            **report,
-                            "evaluated_at": time.time(),
-                            "model": AUTO_EVAL_MODEL_NAME,
-                        }
-
+        # Core-5 (5-point) auto-eval is DISABLED for video — the Creative
+        # Director pairwise critique below is the sole AI eval for video.
         update_payload: Dict[str, Any] = {"auto_eval_status": "done"}
-        for model_key, payload in auto_evals.items():
-            update_payload[f"auto_evals.{model_key}"] = payload
 
         # Pairwise "Creative Director" verdict — only when BOTH models produced
         # video. Video A = Seedance, Video B = Omni (fixed mapping for the AI judge).
