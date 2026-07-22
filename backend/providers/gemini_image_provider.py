@@ -49,7 +49,7 @@ IMAGE_LOCATION = os.getenv("IMAGE_LOCATION", "global")
 
 # Some image models are GA in the main project; preview/EAP ones (e.g.
 # flash-lite) only exist in a separate project. Route per-model.
-IMAGE_PREVIEW_PROJECT = os.getenv("IMAGE_PREVIEW_PROJECT", "cloud-llm-preview1")
+IMAGE_PREVIEW_PROJECT = os.getenv("IMAGE_PREVIEW_PROJECT", "vital-octagon-19612")
 PREVIEW_MODELS = {
     m.strip() for m in os.getenv(
         "IMAGE_PREVIEW_MODELS", "gemini-3.1-flash-lite-image,instant-ramen"

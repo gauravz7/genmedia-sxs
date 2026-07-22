@@ -7,6 +7,7 @@ from typing import List, Optional
 import google.auth
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 
 from util.gcs_utils import download_blob_to_bytes, https_to_gs, upload_from_bytes
 
@@ -14,7 +15,9 @@ load_dotenv()
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "vital-octagon-19612")
 OMNI_LOCATION = os.getenv("OMNI_LOCATION", "global")
-OMNI_MODEL_DEFAULT = "bouncybohr"
+OMNI_MODEL_DEFAULT = os.getenv("OMNI_MODEL_ID", "gemini-omni-flash-preview")
+# Preview API revision required for the gemini-omni-flash-preview interactions API.
+OMNI_API_REVISION = os.getenv("OMNI_API_REVISION", "2026-05-20")
 
 # Projects allowlisted for Omni EAP. Anything outside this set is rejected
 # rather than silently falling back to the default.
@@ -58,17 +61,28 @@ def _image_part_from_url(url: str) -> Optional[dict]:
     }
 
 
+def _g(obj, key):
+    """Read a field from either a dict or a typed object.
+
+    Under Api-Revision 2026-05-20 the interactions API returns `steps` as plain
+    dicts, so attribute access alone silently misses the video payload."""
+    if isinstance(obj, dict):
+        return obj.get(key)
+    return getattr(obj, key, None)
+
+
 def _extract_video_bytes(interaction) -> Optional[bytes]:
     """Pull the first video payload out of an Interactions API response."""
-    for step in getattr(interaction, "steps", []) or []:
-        if getattr(step, "type", None) != "model_output":
+    steps = _g(interaction, "steps") or []
+    for step in steps:
+        if _g(step, "type") not in (None, "model_output"):
             continue
-        for part in getattr(step, "content", []) or []:
-            data = getattr(part, "data", None)
+        for part in (_g(step, "content") or []):
+            data = _g(part, "data")
             if not data:
                 continue
-            mime = getattr(part, "mime_type", "") or ""
-            if "video" in mime or getattr(part, "type", "") == "video":
+            mime = _g(part, "mime_type") or ""
+            if "video" in mime or _g(part, "type") == "video":
                 try:
                     return base64.b64decode(data)
                 except Exception:
@@ -114,10 +128,14 @@ async def generate_with_omni(
 
     try:
         client = genai.Client(
-            enterprise=True,
+            vertexai=True,
             project=project,
             location=OMNI_LOCATION,
             credentials=_get_creds(),
+            http_options=types.HttpOptions(
+                timeout=600000,  # ms (=10 min)
+                headers={"Api-Revision": OMNI_API_REVISION},
+            ),
         )
 
         if mode == "t2v":

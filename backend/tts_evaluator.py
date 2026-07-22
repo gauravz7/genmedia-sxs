@@ -32,9 +32,9 @@ from util.gcs_utils import download_blob_to_bytes, normalize_gcs_url
 TTS_COLLECTION = os.getenv("TTS_COLLECTION", "tts_jobs")
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "vital-octagon-19612")
 
-EVAL_PROJECT = os.getenv("TTS_EVAL_PROJECT", os.getenv("EVAL_PROJECT", "cloud-llm-preview1"))
+EVAL_PROJECT = os.getenv("TTS_EVAL_PROJECT", os.getenv("EVAL_PROJECT", "vital-octagon-19612"))
 EVAL_LOCATION = os.getenv("EVAL_LOCATION", "global")
-EVAL_MODEL = os.getenv("TTS_EVAL_MODEL", "gemini-2.5-flash")
+EVAL_MODEL = os.getenv("TTS_EVAL_MODEL", "gemini-3.5-flash")
 
 METRICS = [
     "naturalness",
@@ -179,7 +179,8 @@ def run_tts_evaluation(job_id: str) -> None:
             types.Part.from_bytes(data=b_bytes, mime_type=_audio_mime(b_url)),
         ]
         config = types.GenerateContentConfig(
-            temperature=0.2,
+            temperature=0.1,
+            thinking_config=types.ThinkingConfig(thinking_level="HIGH"),
             response_mime_type="application/json",
         )
 

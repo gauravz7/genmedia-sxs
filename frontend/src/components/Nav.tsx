@@ -7,6 +7,7 @@ const LINKS: { id: string; label: string; href: string }[] = [
   { id: "tts", label: "TTS Eval", href: "/tts-sxs" },
   { id: "ai-evals", label: "AI Evals", href: "/ai-evals" },
   { id: "analytics", label: "Analytics", href: "/analytics" },
+  { id: "leaderboard", label: "Leaderboard", href: "/leaderboard" },
   { id: "admin", label: "Admin", href: "/admin" },
 ];
 

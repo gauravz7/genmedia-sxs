@@ -1,0 +1,3471 @@
+openapi: 3.1.0
+info:
+  title: Project Pulse — GenMedia SxS API
+  version: 2.0.0
+  description: 'REST API for **Project Pulse (GenMedia SxS)** — an internal platform for blind side-by-side
+    evaluation of generative-media models across **Video, Image and Speech**.
+
+
+    Each modality exposes the same shape: generate A/B cases, serve a blind pair, record a vote, and read
+    stats / leaderboards. An AI judge scores every pair in parallel with human votes.
+
+
+    **Auth:** most read/vote endpoints are open within the IAM-gated app. Admin actions (generation, prompts,
+    hygiene) require the `X-Admin-Token` header (sha256 of `project-pulse-sxs:v1:admin:<ADMIN_PASS>`).'
+  contact:
+    name: Project Pulse
+    url: https://genmedia-sxs-v2-440790012685.us-central1.run.app
+  license:
+    name: Internal — Google
+paths:
+  /api/admin/login:
+    post:
+      summary: Admin Login
+      operationId: admin_login_api_admin_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Creds
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/models:
+    get:
+      summary: Get Models
+      operationId: get_models_api_models_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Models
+    post:
+      summary: Add Model
+      operationId: add_model_api_models_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisteredModel'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Models
+  /api/models/{model_id}/toggle:
+    post:
+      summary: Toggle Model
+      operationId: toggle_model_api_models__model_id__toggle_post
+      parameters:
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Models
+  /api/models/{model_id}:
+    delete:
+      summary: Delete Model
+      operationId: delete_model_api_models__model_id__delete
+      parameters:
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Models
+  /api/admin/prompts:
+    get:
+      summary: Get Admin Prompts
+      operationId: get_admin_prompts_api_admin_prompts_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+    post:
+      summary: Add Admin Prompt
+      operationId: add_admin_prompt_api_admin_prompts_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Req
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/admin/prompts/{prompt_id}:
+    delete:
+      summary: Delete Admin Prompt
+      operationId: delete_admin_prompt_api_admin_prompts__prompt_id__delete
+      parameters:
+      - name: prompt_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Prompt Id
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/generate-image:
+    post:
+      summary: Generate Image Api
+      operationId: generate_image_api_api_generate_image_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Request
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Generation & Media
+  /api/upload:
+    post:
+      summary: Upload File Api
+      operationId: upload_file_api_api_upload_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_file_api_api_upload_post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Generation & Media
+  /api/sxs/upload:
+    post:
+      summary: Sxs Upload
+      description: 'Upload a cases JSON + local asset files; create one job per case and
+
+        schedule background Seedance+Omni generation followed by Core-5 auto-eval.'
+      operationId: sxs_upload_api_sxs_upload_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_sxs_upload_api_sxs_upload_post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/jobs:
+    get:
+      summary: Sxs List Jobs
+      description: List SxS auto-eval jobs (optionally filtered by batch), signed for browser.
+      operationId: sxs_list_jobs_api_sxs_jobs_get
+      parameters:
+      - name: batch
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Batch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/jobs/{job_id}:
+    get:
+      summary: Sxs Get Job
+      operationId: sxs_get_job_api_sxs_jobs__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+    delete:
+      summary: Sxs Delete Job
+      description: Delete an SxS pair from the isolated sxs_jobs collection.
+      operationId: sxs_delete_job_api_sxs_jobs__job_id__delete
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/jobs/{job_id}/retry:
+    post:
+      summary: Sxs Retry Job
+      description: Re-generate the failed model(s) of one SxS pair, then re-run auto-eval.
+      operationId: sxs_retry_job_api_sxs_jobs__job_id__retry_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/aieval/{job_id}:
+    get:
+      summary: Sxs Get Aieval
+      description: 'Return the auto-eval (Core-5) reports for a job — used to reveal AI
+
+        ratings on the human-voting page AFTER a vote is cast.'
+      operationId: sxs_get_aieval_api_sxs_aieval__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/report.json:
+    get:
+      summary: Sxs Report Json
+      operationId: sxs_report_json_api_sxs_report_json_get
+      parameters:
+      - name: batch
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Batch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/report.csv:
+    get:
+      summary: Sxs Report Csv
+      operationId: sxs_report_csv_api_sxs_report_csv_get
+      parameters:
+      - name: batch
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Batch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/pair:
+    get:
+      summary: Sxs Pair
+      description: 'Return a random Seedance-vs-Omni pair from the isolated SxS test DB for
+
+        human voting. Optional filters: tag (category), prompt_id, search (prompt
+
+        text). AI eval is fetched separately (only after a vote is cast).'
+      operationId: sxs_pair_api_sxs_pair_get
+      parameters:
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - name: prompt_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Prompt Id
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/catalog:
+    get:
+      summary: Sxs Catalog
+      description: 'Return counts by customer and modality for a GCS cases JSON, so the UI
+
+        can offer filters before launching a (potentially large) batch.'
+      operationId: sxs_catalog_api_sxs_catalog_get
+      parameters:
+      - name: cases_uri
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Cases Uri
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/retry-failures:
+    post:
+      summary: Sxs Retry Failures
+      description: 'Retry every case where an API failed to produce a result. Regenerates
+
+        only the failed model(s) per job, then re-runs the Core-5 auto-eval.'
+      operationId: sxs_retry_failures_api_sxs_retry_failures_post
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Limit
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/resume:
+    post:
+      summary: Sxs Resume
+      description: 'Continue from where it stopped: reprocess every pair that is NOT fully
+
+        done — failed pairs AND orphaned ''generating'' pairs left by an interrupted
+
+        run. Regenerates only the missing model(s) per pair, then re-evaluates.
+
+        `stale_seconds` avoids touching a pair that is actively generating right now.'
+      operationId: sxs_resume_api_sxs_resume_post
+      parameters:
+      - name: stale_seconds
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 120
+          title: Stale Seconds
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/director-eval:
+    post:
+      summary: Sxs Director Eval
+      description: 'Run the pairwise Creative-Director critique on completed pairs (both
+
+        models succeeded). By default only pairs missing `director_eval` are run.'
+      operationId: sxs_director_eval_api_sxs_director_eval_post
+      parameters:
+      - name: force
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Force
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Limit
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/cleanup-orphans:
+    post:
+      summary: Sxs Cleanup Orphans
+      description: 'Delete SxS jobs that never completed (auto_eval_status != ''done'') and are
+
+        older than the cutoff — e.g. jobs orphaned by a server restart.'
+      operationId: sxs_cleanup_orphans_api_sxs_cleanup_orphans_post
+      parameters:
+      - name: older_than_seconds
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 120
+          title: Older Than Seconds
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/runs:
+    get:
+      summary: Sxs Runs
+      description: 'Run log: every batch launched + a summary of cases already done /
+
+        in-progress, so the user can avoid duplicate (expensive) runs.'
+      operationId: sxs_runs_api_sxs_runs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Video SxS
+  /api/sxs/failures:
+    get:
+      summary: Sxs Failures
+      description: 'List cases where either API (Seedance or Omni) did not produce a result,
+
+        with the per-model error so they can be retried.'
+      operationId: sxs_failures_api_sxs_failures_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Video SxS
+  /api/sxs/run-gcs:
+    post:
+      summary: Sxs Run Gcs
+      description: 'Load cases directly from a GCS JSON (references already gs:// URLs),
+
+        optionally filter by customer/modality and cap with limit, then create one
+
+        job per case and schedule Seedance+Omni generation + Core-5 auto-eval.'
+      operationId: sxs_run_gcs_api_sxs_run_gcs_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SxsGcsRunRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/admin/generate-json:
+    post:
+      summary: Admin Generate Json
+      description: 'Admin: upload a cases JSON (+ optional asset files) and generate each case
+
+        on ALL active registry models whose `type` matches the case modality, then
+
+        run the Core-5 auto-eval. Stored in sxs_jobs (source==''sxs_auto'').'
+      operationId: admin_generate_json_api_admin_generate_json_post
+      parameters:
+      - name: skip_existing
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Skip Existing
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_admin_generate_json_api_admin_generate_json_post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/sxs/compose:
+    post:
+      summary: Sxs Compose
+      description: 'Run a single composed video case (from the compose-box form) on the
+
+        active models matching its modality, then auto-eval.'
+      operationId: sxs_compose_api_sxs_compose_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SxsComposeRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/translate:
+    post:
+      summary: Sxs Translate
+      description: Translate a prompt (any language) to English with Gemini 2.5 Flash.
+      operationId: sxs_translate_api_sxs_translate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranslateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/vote:
+    post:
+      summary: Sxs Vote
+      description: 'Store a human vote for an SxS pair in the isolated sxs_votes collection.
+
+
+        Idempotency guard: ignore a duplicate vote from the same evaluator on the
+
+        same pair within a short window (rapid double-clicks / retries).'
+      operationId: sxs_vote_api_sxs_vote_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SxsVoteRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/admin/generate-tags:
+    post:
+      summary: Generate Tags Endpoint
+      operationId: generate_tags_endpoint_api_admin_generate_tags_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Request
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/tags:
+    get:
+      summary: Get All Tags
+      description: Returns all unique tags across jobs and prompts for search/filter UI.
+      operationId: get_all_tags_api_tags_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Generation & Media
+  /api/admin/backfill-tags:
+    post:
+      summary: Backfill Tags
+      description: Auto-generate tags for all jobs and prompts that have no categories.
+      operationId: backfill_tags_api_admin_backfill_tags_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/admin/batch/sheet/load:
+    post:
+      summary: Load Batch Sheet
+      operationId: load_batch_sheet_api_admin_batch_sheet_load_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SheetLoadRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/admin/batch/sheet/update:
+    post:
+      summary: Update Batch Sheet
+      operationId: update_batch_sheet_api_admin_batch_sheet_update_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SheetUpdateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/admin/jobs:
+    get:
+      summary: Get Admin Jobs
+      operationId: get_admin_jobs_api_admin_jobs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/admin/jobs/{job_id}:
+    delete:
+      summary: Delete Job
+      description: Delete a job from Firestore.
+      operationId: delete_job_api_admin_jobs__job_id__delete
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/admin/jobs/{job_id}/retry:
+    post:
+      summary: Retry Failed Models
+      description: Retry failed/error models in a job. With include_stuck=true, also retries models stuck
+        in 'generating'.
+      operationId: retry_failed_models_api_admin_jobs__job_id__retry_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: include_stuck
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Include Stuck
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/admin/jobs/{job_id}/status:
+    get:
+      summary: Get Job Status
+      description: 'Return per-model generation status for a single job.
+
+        Always reads fresh from Firestore to avoid stale cache during polling.'
+      operationId: get_job_status_api_admin_jobs__job_id__status_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/generate:
+    post:
+      summary: Generate Videos
+      operationId: generate_videos_api_generate_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Generation & Media
+  /api/evaluation/pair:
+    get:
+      summary: Get Random Eval Pair
+      description: 'Returns a random pair of successful variants for SxS evaluation.
+
+        Supports filtering by prompt_id, tag (category), or free-text search on prompt.
+
+        When veo_anchored=true, one side is always a Veo model.
+
+        When source is given (e.g. "sxs_auto"), only jobs from that source are paired.'
+      operationId: get_random_eval_pair_api_evaluation_pair_get
+      parameters:
+      - name: prompt_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Prompt Id
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      - name: veo_anchored
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Veo Anchored
+      - name: source
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/evaluation/vote:
+    post:
+      summary: Cast Vote
+      operationId: cast_vote_api_evaluation_vote_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoteRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/admin/votes/prune:
+    post:
+      summary: Prune Votes
+      description: Keep only the most recent `keep` votes, delete the rest.
+      operationId: prune_votes_api_admin_votes_prune_post
+      parameters:
+      - name: keep
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 20
+          title: Keep
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Admin
+      security:
+      - AdminToken: []
+  /api/evaluation/stats:
+    get:
+      summary: Get Stats
+      description: Win rates and leaderboard. Optionally filter by tag and/or ldap.
+      operationId: get_stats_api_evaluation_stats_get
+      parameters:
+      - name: ldap
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ldap
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/leaderboard/users:
+    get:
+      summary: Get User Leaderboard
+      operationId: get_user_leaderboard_api_leaderboard_users_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Leaderboard & Votes
+  /api/sxs/stats:
+    get:
+      summary: Sxs Stats
+      description: 'Win rates / leaderboard for the isolated SxS test DB (sxs_votes + sxs_jobs).
+
+        Scores use the Core-5 1-5 rubric (no default-skip).
+
+
+        Optional `tag` filters to jobs whose categories include that tag (and, in turn,
+
+        restricts votes to those jobs).'
+      operationId: sxs_stats_api_sxs_stats_get
+      parameters:
+      - name: ldap
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ldap
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Video SxS
+  /api/sxs/tags:
+    get:
+      summary: Sxs Tags
+      description: 'Distinct categories across the SxS video jobs (sxs_jobs), for the video
+
+        analytics tag filter. Sourced from the same collection the stats use so the
+
+        picker and the by-tag matrix always agree.'
+      operationId: sxs_tags_api_sxs_tags_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Video SxS
+  /api/sxs/leaderboard/users:
+    get:
+      summary: Sxs User Leaderboard
+      operationId: sxs_user_leaderboard_api_sxs_leaderboard_users_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Video SxS
+  /api/analytics/latency:
+    get:
+      summary: Analytics Latency
+      description: 'Average generation latency per (modality, model) across all modalities:
+
+        video (t2v/i2v/r2v from sxs_jobs), image (t2i/i2i from image_jobs), and
+
+        speech (tts from tts_jobs). Latency normalized to SECONDS (video stores
+
+        `latency` in s; image/tts store `latency_ms`).'
+      operationId: analytics_latency_api_analytics_latency_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Analytics
+  /api/benchmark/winmap:
+    get:
+      summary: Benchmark Winmap
+      description: 'Where do Google models win? Aggregates AI-judge verdicts across image,
+
+        TTS and video (Google-vs-competitor pairs only) and reports Google''s
+
+        win-rate with Wilson CIs + n, sliced by category, language, and modality.
+
+        Segments whose CI clears 50% are surfaced as significant leads / trails.
+
+        (Human votes are sparse; this uses the AI judge — pair with /agreement.)'
+      operationId: benchmark_winmap_api_benchmark_winmap_get
+      parameters:
+      - name: min_n
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 10
+          title: Min N
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Generation & Media
+  /api/analytics/agreement:
+    get:
+      summary: Analytics Agreement
+      description: 'How often does the AI judge agree with human blind votes? Per modality:
+
+        of jobs that have BOTH a human vote (winner_model) and an AI verdict
+
+        (ai_eval.winner_engine / director), the % where they pick the same engine.'
+      operationId: analytics_agreement_api_analytics_agreement_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Analytics
+  /api/health:
+    get:
+      summary: Health Check
+      operationId: health_check_api_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - System
+  /api/media:
+    get:
+      summary: Get Media Proxy
+      operationId: get_media_proxy_api_media_get
+      parameters:
+      - name: url
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Url
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Generation & Media
+  /api/slides/generate:
+    post:
+      summary: Generate Slides
+      description: 'Generate Google Slides presentation with Drive-embedded videos.
+
+        - batches: list of batch names to include (empty = all)
+
+        - force_new: create a fresh presentation instead of appending'
+      operationId: generate_slides_api_slides_generate_post
+      parameters:
+      - name: batches
+        in: query
+        required: false
+        schema:
+          type: array
+          items:
+            type: string
+          default: []
+          title: Batches
+      - name: force_new
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Force New
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Slideware
+  /api/slides/append/{batch_name}:
+    post:
+      summary: Append Slides For Batch
+      description: Append a single batch to the existing Google Slides presentation.
+      operationId: append_slides_for_batch_api_slides_append__batch_name__post
+      parameters:
+      - name: batch_name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Batch Name
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Slideware
+  /slideware:
+    get:
+      summary: Serve Slideware
+      description: Serve the generated HTML slideware presentation.
+      operationId: serve_slideware_slideware_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Slideware
+  /api/slideware/regenerate:
+    post:
+      summary: Regenerate Slideware
+      description: Regenerate the slideware HTML from current Firestore data.
+      operationId: regenerate_slideware_api_slideware_regenerate_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Slideware
+  /api/slideware/pptx:
+    post:
+      summary: Generate Pptx Endpoint
+      description: Generate and download a PPTX with embedded videos for specified batches.
+      operationId: generate_pptx_endpoint_api_slideware_pptx_post
+      parameters:
+      - name: batches
+        in: query
+        required: false
+        schema:
+          type: array
+          items:
+            type: string
+          default: []
+          title: Batches
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Slideware
+  /api/slideware/pptx/download:
+    get:
+      summary: Download Existing Pptx
+      description: Download the most recently generated PPTX.
+      operationId: download_existing_pptx_api_slideware_pptx_download_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Slideware
+  /api/slideware/feedback:
+    get:
+      summary: Get Slideware Feedback
+      description: Get all feedback (best picks + comments) for slideware.
+      operationId: get_slideware_feedback_api_slideware_feedback_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Slideware
+  /api/slideware/feedback/pick:
+    post:
+      summary: Set Best Video
+      description: Set the best video pick for a batch+tier.
+      operationId: set_best_video_api_slideware_feedback_pick_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SlideFeedback'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Slideware
+  /api/slideware/feedback/comment:
+    post:
+      summary: Add Comment
+      description: Add a comment to a batch+tier.
+      operationId: add_comment_api_slideware_feedback_comment_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SlideFeedback'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Slideware
+  /api/votes/count:
+    get:
+      summary: Votes Count
+      description: 'Total votes a user (by ldap) has cast across ALL modalities
+
+        (video sxs_votes + image_votes + tts_votes + legacy votes). Used by the
+
+        Analytics page to enforce the 10-vote access gate.'
+      operationId: votes_count_api_votes_count_get
+      parameters:
+      - name: ldap
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Ldap
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Leaderboard & Votes
+  /api/leaderboard:
+    get:
+      summary: Full Leaderboard
+      description: 'Voter leaderboard: top overall + top per modality (video / image / tts).
+
+
+        Anti-gaming: the blind A/B label is randomized per job, so a genuine voter''s
+
+        A vs B split trends ~50/50 over many votes. A voter who almost always picks
+
+        the SAME side is voting blindly to farm the leaderboard — we exclude anyone
+
+        with >= MIN_DECISIVE non-tie votes whose dominant side is >= ONE_SIDED of them.'
+      operationId: full_leaderboard_api_leaderboard_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Leaderboard & Votes
+  /api/votes/leaderboard:
+    get:
+      summary: Votes Leaderboard
+      description: Top evaluators across ALL modalities (video + image + tts + legacy).
+      operationId: votes_leaderboard_api_votes_leaderboard_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Leaderboard & Votes
+  /api/image/matchups:
+    get:
+      summary: Image Matchups
+      operationId: image_matchups_api_image_matchups_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Image SxS
+  /api/image/upload:
+    post:
+      summary: Image Upload
+      description: 'Upload an image cases JSON + (optional) local input-image files; create one
+
+        job per case and schedule background two-model generation + AI judge.
+
+
+        Relative `input_image` paths in the cases JSON are resolved to GCS URLs from
+
+        the uploaded files (reusing util.asset_intake).'
+      operationId: image_upload_api_image_upload_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_image_upload_api_image_upload_post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/compose:
+    post:
+      summary: Image Compose
+      description: Run a single composed image case (from the compose form).
+      operationId: image_compose_api_image_compose_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageComposeRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/jobs:
+    get:
+      summary: Image List Jobs
+      operationId: image_list_jobs_api_image_jobs_get
+      parameters:
+      - name: batch
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Batch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/jobs/{job_id}:
+    get:
+      summary: Image Get Job
+      operationId: image_get_job_api_image_jobs__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+    delete:
+      summary: Image Delete Job
+      operationId: image_delete_job_api_image_jobs__job_id__delete
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/jobs/{job_id}/retry:
+    post:
+      summary: Image Retry Job
+      operationId: image_retry_job_api_image_jobs__job_id__retry_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/aieval/{job_id}:
+    get:
+      summary: Image Get Aieval
+      description: Return the AI judge result for a job — revealed after a human vote.
+      operationId: image_get_aieval_api_image_aieval__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/pair:
+    get:
+      summary: Image Pair
+      description: 'Return a random blind A/B image pair (both sides succeeded) for voting.
+
+        Optional filters: tag (category), prompt_id (substring), search (prompt text).'
+      operationId: image_pair_api_image_pair_get
+      parameters:
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - name: prompt_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Prompt Id
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/tags:
+    get:
+      summary: Image Tags
+      description: Distinct categories across image jobs, for the arena tag filter.
+      operationId: image_tags_api_image_tags_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Image SxS
+  /api/image/vote:
+    post:
+      summary: Image Vote
+      description: Store a blind human vote. Resolves winner/loser model via side_map.
+      operationId: image_vote_api_image_vote_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageVoteRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/stats:
+    get:
+      summary: Image Stats
+      description: 'Win rates + per-metric averages per model, and per-matchup breakdown.
+
+
+        Optional `tag` filters to jobs whose categories include that tag.'
+      operationId: image_stats_api_image_stats_get
+      parameters:
+      - name: ldap
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ldap
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/leaderboard:
+    get:
+      summary: Image Leaderboard
+      description: Alias of stats for the brief's `/api/image/leaderboard` path.
+      operationId: image_leaderboard_api_image_leaderboard_get
+      parameters:
+      - name: ldap
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ldap
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/leaderboard/users:
+    get:
+      summary: Image User Leaderboard
+      operationId: image_user_leaderboard_api_image_leaderboard_users_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - Image SxS
+  /api/image/report.json:
+    get:
+      summary: Image Report Json
+      operationId: image_report_json_api_image_report_json_get
+      parameters:
+      - name: batch
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Batch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/report.csv:
+    get:
+      summary: Image Report Csv
+      operationId: image_report_csv_api_image_report_csv_get
+      parameters:
+      - name: batch
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Batch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/image/media:
+    get:
+      summary: Image Media Proxy
+      operationId: image_media_proxy_api_image_media_get
+      parameters:
+      - name: url
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Url
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - Image SxS
+  /api/tts/upload:
+    post:
+      summary: Tts Upload
+      description: 'Upload a TTS cases JSON; create one job per case and schedule background
+
+        Gemini + ElevenLabs generation followed by the AI audio judge.'
+      operationId: tts_upload_api_tts_upload_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_tts_upload_api_tts_upload_post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/compose:
+    post:
+      summary: Tts Compose
+      description: Run a single composed case (from the compose form).
+      operationId: tts_compose_api_tts_compose_post
+      parameters:
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TtsComposeRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/jobs:
+    get:
+      summary: Tts List Jobs
+      operationId: tts_list_jobs_api_tts_jobs_get
+      parameters:
+      - name: batch
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Batch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/jobs/{job_id}:
+    get:
+      summary: Tts Get Job
+      operationId: tts_get_job_api_tts_jobs__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+    delete:
+      summary: Tts Delete Job
+      operationId: tts_delete_job_api_tts_jobs__job_id__delete
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/jobs/{job_id}/retry:
+    post:
+      summary: Tts Retry Job
+      operationId: tts_retry_job_api_tts_jobs__job_id__retry_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: x-admin-token
+        in: header
+        required: false
+        schema:
+          type: string
+          title: X-Admin-Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/aieval/{job_id}:
+    get:
+      summary: Tts Get Aieval
+      description: Return the AI audio-judge result for a job — revealed after a human vote.
+      operationId: tts_get_aieval_api_tts_aieval__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/pair:
+    get:
+      summary: Tts Pair
+      description: 'Return a random blind A/B TTS pair (both sides succeeded) for voting.
+
+        Optional filters: tag (category), prompt_id (substring), search (text), language.'
+      operationId: tts_pair_api_tts_pair_get
+      parameters:
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - name: prompt_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Prompt Id
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      - name: language
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/tags:
+    get:
+      summary: Tts Tags
+      description: Distinct categories across TTS jobs, for the arena tag filter.
+      operationId: tts_tags_api_tts_tags_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - TTS SxS
+  /api/tts/languages:
+    get:
+      summary: Tts Languages
+      description: 'Distinct languages actually present across TTS jobs (incl. mixed codes
+
+        like ''hi-en''), for the arena + analytics language filters.'
+      operationId: tts_languages_api_tts_languages_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - TTS SxS
+  /api/tts/vote:
+    post:
+      summary: Tts Vote
+      description: Store a blind human vote. Resolves winner/loser engine via side_map.
+      operationId: tts_vote_api_tts_vote_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TtsVoteRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/stats:
+    get:
+      summary: Tts Stats
+      description: 'Win rates + per-metric averages for Gemini vs ElevenLabs.
+
+        Optional `language` filter restricts to jobs tagged with that language code.
+
+        Optional `tag` filters to jobs whose categories include that tag.'
+      operationId: tts_stats_api_tts_stats_get
+      parameters:
+      - name: ldap
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ldap
+      - name: language
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/leaderboard/users:
+    get:
+      summary: Tts User Leaderboard
+      operationId: tts_user_leaderboard_api_tts_leaderboard_users_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - TTS SxS
+  /api/tts/leaderboard:
+    get:
+      summary: Tts Leaderboard
+      description: 'Engine win-rate leaderboard (Gemini vs ElevenLabs). Thin alias over the
+
+        `/stats` computation so the UI has a dedicated endpoint.'
+      operationId: tts_leaderboard_api_tts_leaderboard_get
+      parameters:
+      - name: ldap
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ldap
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/voices:
+    get:
+      summary: Tts Voices
+      description: 'Return the available voices for the compose form: the 30 prebuilt Gemini
+
+        voices and the ElevenLabs named voices.'
+      operationId: tts_voices_api_tts_voices_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      tags:
+      - TTS SxS
+  /api/tts/report.json:
+    get:
+      summary: Tts Report Json
+      operationId: tts_report_json_api_tts_report_json_get
+      parameters:
+      - name: batch
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Batch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/report.csv:
+    get:
+      summary: Tts Report Csv
+      operationId: tts_report_csv_api_tts_report_csv_get
+      parameters:
+      - name: batch
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Batch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+  /api/tts/media:
+    get:
+      summary: Tts Media Proxy
+      operationId: tts_media_proxy_api_tts_media_get
+      parameters:
+      - name: url
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Url
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      tags:
+      - TTS SxS
+components:
+  schemas:
+    Body_admin_generate_json_api_admin_generate_json_post:
+      properties:
+        cases:
+          type: string
+          contentMediaType: application/octet-stream
+          title: Cases
+        files:
+          items:
+            type: string
+            contentMediaType: application/octet-stream
+          type: array
+          title: Files
+          default: []
+      type: object
+      required:
+      - cases
+      title: Body_admin_generate_json_api_admin_generate_json_post
+    Body_image_upload_api_image_upload_post:
+      properties:
+        cases:
+          type: string
+          contentMediaType: application/octet-stream
+          title: Cases
+        files:
+          items:
+            type: string
+            contentMediaType: application/octet-stream
+          type: array
+          title: Files
+          default: []
+      type: object
+      required:
+      - cases
+      title: Body_image_upload_api_image_upload_post
+    Body_sxs_upload_api_sxs_upload_post:
+      properties:
+        cases:
+          type: string
+          contentMediaType: application/octet-stream
+          title: Cases
+        files:
+          items:
+            type: string
+            contentMediaType: application/octet-stream
+          type: array
+          title: Files
+          default: []
+      type: object
+      required:
+      - cases
+      title: Body_sxs_upload_api_sxs_upload_post
+    Body_tts_upload_api_tts_upload_post:
+      properties:
+        cases:
+          type: string
+          contentMediaType: application/octet-stream
+          title: Cases
+      type: object
+      required:
+      - cases
+      title: Body_tts_upload_api_tts_upload_post
+    Body_upload_file_api_api_upload_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_file_api_api_upload_post
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ImageComposeRequest:
+      properties:
+        id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Id
+        mode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mode
+          default: t2i
+        prompt:
+          type: string
+          title: Prompt
+        input_image:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Input Image
+        matchup:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Matchup
+        customer:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Customer
+      type: object
+      required:
+      - prompt
+      title: ImageComposeRequest
+      description: A single composed case from the UI compose form.
+    ImageVoteRequest:
+      properties:
+        job_id:
+          type: string
+          title: Job Id
+        winner_side:
+          type: string
+          title: Winner Side
+        scores:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Scores
+          default: {}
+        justification:
+          type: string
+          title: Justification
+          default: ''
+        ldap:
+          type: string
+          title: Ldap
+          default: anonymous
+      type: object
+      required:
+      - job_id
+      - winner_side
+      title: ImageVoteRequest
+    PromptRequest:
+      properties:
+        text:
+          type: string
+          title: Text
+        categories:
+          items:
+            type: string
+          type: array
+          title: Categories
+          default: []
+        ratio:
+          type: string
+          title: Ratio
+          default: '16:9'
+        prompt_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Prompt Id
+        start_image_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Start Image Url
+        end_image_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: End Image Url
+        reference_image_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reference Image Url
+        reference_images:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Reference Images
+        model_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Model Ids
+        mode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mode
+        omni_project:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Omni Project
+      type: object
+      required:
+      - text
+      title: PromptRequest
+    RegisteredModel:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        provider:
+          type: string
+          title: Provider
+        model_id:
+          type: string
+          title: Model Id
+        type:
+          type: string
+          title: Type
+          default: t2v
+        is_active:
+          type: boolean
+          title: Is Active
+          default: true
+      type: object
+      required:
+      - id
+      - name
+      - provider
+      - model_id
+      title: RegisteredModel
+    SheetLoadRequest:
+      properties:
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - url
+      title: SheetLoadRequest
+    SheetUpdateRequest:
+      properties:
+        url:
+          type: string
+          title: Url
+        row:
+          type: integer
+          title: Row
+        success:
+          type: boolean
+          title: Success
+        error:
+          type: string
+          title: Error
+          default: ''
+      type: object
+      required:
+      - url
+      - row
+      - success
+      title: SheetUpdateRequest
+    SlideFeedback:
+      properties:
+        batch_name:
+          type: string
+          title: Batch Name
+        model_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Key
+        tier:
+          type: string
+          title: Tier
+        user_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: User Name
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+      type: object
+      required:
+      - batch_name
+      - tier
+      title: SlideFeedback
+    SxsComposeRequest:
+      properties:
+        id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Id
+        customer:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Customer
+        prompt:
+          type: string
+          title: Prompt
+        modality:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Modality
+          default: t2v
+        reference_images:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Reference Images
+        reference_videos:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Reference Videos
+        aspect_ratio:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Aspect Ratio
+          default: '16:9'
+        duration:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Duration
+          default: 8
+      type: object
+      required:
+      - prompt
+      title: SxsComposeRequest
+      description: A single composed video case from the admin compose-box form.
+    SxsGcsRunRequest:
+      properties:
+        cases_uri:
+          type: string
+          title: Cases Uri
+        customers:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Customers
+        modalities:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Modalities
+        limit:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Limit
+        randomize:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Randomize
+          default: false
+        skip_existing:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Skip Existing
+          default: true
+      type: object
+      required:
+      - cases_uri
+      title: SxsGcsRunRequest
+    SxsVoteRequest:
+      properties:
+        job_id:
+          type: string
+          title: Job Id
+        winner_side:
+          type: string
+          title: Winner Side
+        winner_model:
+          type: string
+          title: Winner Model
+        loser_model:
+          type: string
+          title: Loser Model
+        scores:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Scores
+          default: {}
+        justification:
+          type: string
+          title: Justification
+          default: ''
+        ldap:
+          type: string
+          title: Ldap
+          default: anonymous
+      type: object
+      required:
+      - job_id
+      - winner_side
+      - winner_model
+      - loser_model
+      title: SxsVoteRequest
+    TranslateRequest:
+      properties:
+        text:
+          type: string
+          title: Text
+      type: object
+      required:
+      - text
+      title: TranslateRequest
+    TtsComposeRequest:
+      properties:
+        id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Id
+        text:
+          type: string
+          title: Text
+        voice:
+          type: string
+          title: Voice
+          default: Kore
+        style_prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Style Prompt
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+        mode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mode
+          default: single
+        speakers:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Speakers
+        customer:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Customer
+      type: object
+      required:
+      - text
+      title: TtsComposeRequest
+      description: A single composed case from the UI compose form.
+    TtsVoteRequest:
+      properties:
+        job_id:
+          type: string
+          title: Job Id
+        winner_side:
+          type: string
+          title: Winner Side
+        scores:
+          additionalProperties: true
+          type: object
+          title: Scores
+          default: {}
+        justification:
+          type: string
+          title: Justification
+          default: ''
+        ldap:
+          type: string
+          title: Ldap
+          default: anonymous
+      type: object
+      required:
+      - job_id
+      - winner_side
+      title: TtsVoteRequest
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    VoteRequest:
+      properties:
+        job_id:
+          type: string
+          title: Job Id
+        winner_side:
+          type: string
+          title: Winner Side
+        winner_model:
+          type: string
+          title: Winner Model
+        loser_model:
+          type: string
+          title: Loser Model
+        scores:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Scores
+        justification:
+          type: string
+          title: Justification
+        ldap:
+          type: string
+          title: Ldap
+          default: anonymous
+      type: object
+      required:
+      - job_id
+      - winner_side
+      - winner_model
+      - loser_model
+      - scores
+      - justification
+      title: VoteRequest
+  securitySchemes:
+    AdminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+      description: sha256 of 'project-pulse-sxs:v1:admin:<ADMIN_PASS>'
+servers:
+- url: https://genmedia-sxs-v2-440790012685.us-central1.run.app
+  description: Production (Cloud Run, Google-IAM gated)
+- url: http://localhost:8011
+  description: Local development
+tags:
+- name: System
+  description: Health and service metadata.
+- name: Video SxS
+  description: Blind side-by-side video evaluation — pairs, votes, stats, catalog, generation.
+- name: Image SxS
+  description: Image (T2I / I2I) side-by-side — pairs, votes, matchups, results, generation.
+- name: TTS SxS
+  description: Text-to-speech side-by-side (Gemini TTS vs ElevenLabs) — voices, pairs, votes, results.
+- name: Analytics
+  description: Aggregated win rates, dimension analytics and latency.
+- name: Leaderboard & Votes
+  description: Evaluator leaderboards and vote counters.
+- name: Models
+  description: Model registry — list, add, toggle active models.
+- name: Generation & Media
+  description: Generation triggers and media proxy/serving helpers.
+- name: Admin
+  description: 'Admin-only: prompts, batch import, generation, tagging, vote hygiene. Requires the X-Admin-Token
+    header.'
+- name: Slideware
+  description: Slide/feedback generation utilities.

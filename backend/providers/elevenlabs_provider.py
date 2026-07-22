@@ -93,18 +93,53 @@ def _standard_result(model: str, **kwargs) -> dict:
     return base
 
 
+_account_voice_ids_cache = None
+
+
+def _account_voice_ids() -> set:
+    """Voice IDs available on the workspace (cached for the process lifetime).
+    Returns an empty set if the listing call fails — callers treat that as
+    'unknown', so we never block generation on a transient API hiccup."""
+    global _account_voice_ids_cache
+    if _account_voice_ids_cache is None:
+        try:
+            r = requests.get(
+                "https://api.elevenlabs.io/v1/voices",
+                headers={"xi-api-key": ELEVENLABS_API_KEY},
+                timeout=15,
+            )
+            r.raise_for_status()
+            _account_voice_ids_cache = {v["voice_id"] for v in r.json().get("voices", [])}
+        except Exception as e:  # pragma: no cover
+            print(f"[elevenlabs] could not list account voices: {e}")
+            _account_voice_ids_cache = set()
+    return _account_voice_ids_cache
+
+
+def _on_account(vid: str) -> bool:
+    """True if the voice is on the workspace (or if we couldn't list voices)."""
+    ids = _account_voice_ids()
+    return (not ids) or (vid in ids)
+
+
 def _resolve_voice(voice: Optional[str], language: Optional[str]) -> str:
-    """Explicit voice wins; else a native voice for the language (if enabled and
-    known); else the default account voice."""
+    """Explicit voice wins; else a native voice for the language (if enabled,
+    known, AND provisioned on the account); else the default account voice.
+
+    A native voice_id that is NOT on the workspace would 400; instead we fall
+    back to the default voice. Eleven v3 is multilingual (70+ languages), so the
+    default voice still speaks the target language — just without a native
+    accent — rather than the case erroring out."""
     if voice:
         if len(voice) >= 20 and " " not in voice:
-            return voice  # already a voice_id
-        if voice in VOICE_MAP:
-            return VOICE_MAP[voice]
+            if _on_account(voice):
+                return voice  # already a valid on-account voice_id
+        elif voice in VOICE_MAP:
+            return VOICE_MAP[voice]  # curated default voices (always on account)
     if USE_NATIVE and language:
         base = str(language).strip().lower().split("-")[0]
         vid = LANG_VOICE.get(base)
-        if vid:
+        if vid and _on_account(vid):
             return vid
     return DEFAULT_VOICE_ID
 
@@ -119,9 +154,12 @@ def _voice_settings(model: str, style_prompt: Optional[str]) -> dict:
     blob = (style_prompt or "").lower()
     expressive = any(w in blob for w in ("expressive", "dramatic", "excited", "energetic", "emotional", "lively"))
     calm = any(w in blob for w in ("calm", "neutral", "monotone", "documentary", "serious"))
+    # Reserve the fully-flat Robust (1.0) tier ONLY for true meditation; every
+    # other calm read caps at Natural (0.5), and expressive reads use Creative (0.0).
+    meditation = any(w in blob for w in ("meditation", "serene", "soothing", "guided relaxation"))
     if str(model).startswith("eleven_v3"):
-        stability = 0.0 if expressive else (1.0 if calm else 0.5)
-        return {"stability": stability}
+        stability = 1.0 if meditation else (0.0 if expressive else 0.5)
+        return {"stability": stability, "use_speaker_boost": True}
     stability = 0.3 if expressive else (0.7 if calm else 0.5)
     return {
         "stability": stability,

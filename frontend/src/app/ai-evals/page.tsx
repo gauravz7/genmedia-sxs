@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { API_BASE_URL, formatUrl, maskPid } from "@/lib/api";
 import Nav from "@/components/Nav";
+import TranslateButton from "@/components/TranslateButton";
 
 // ===================================================================
 // Loose types — auto-eval shape is dynamic
@@ -178,6 +179,19 @@ function extractJobEvals(job: any): { engines: EngineEval[]; winner: string | nu
 
 // Tags for filtering: categories/tags + language only (no customer names —
 // those are sensitive and must not surface as tags). Modality has its own tabs.
+// Controlled image-category taxonomy (max 30) — keep in sync with
+// backend/image_taxonomy.py. Drives display order of the tag filter chips.
+const IMAGE_TAXONOMY_ORDER: string[] = [
+  "Anime", "Cartoon & Illustration", "Traditional Art", "General & Photorealistic",
+  "Nature & Landscapes", "People: Portraits", "People: Groups & Activities",
+  "Physical Spaces", "Vintage & Retro", "Futuristic & Sci-Fi", "Fantasy & Mythical",
+  "Graphic Design & Digital Rendering", "Text & Typography", "UI/UX Design", "Commercial",
+  "Comics & Manga", "3D Render & CGI", "Storyboard & Concept Art", "Character Design",
+  "Gaming & Game Art", "Product & Packaging", "Food & Beverage", "Fashion & Apparel",
+  "Automotive & Vehicles", "Animals & Wildlife", "Architecture & Interiors",
+  "Logos & Branding", "Infographics & Diagrams", "Abstract & Patterns", "Macro & Close-up",
+];
+
 function jobTags(job: any): string[] {
   const t = new Set<string>();
   const add = (v: any) => { if (v != null && String(v).trim()) t.add(String(v).trim()); };
@@ -254,7 +268,11 @@ export default function AiEvals() {
     const slice = modality === "all" ? jobs : (jobs as any[]).filter((j) => (j._modality || "video") === modality);
     const set = new Set<string>();
     slice.forEach((j) => jobTags(j).forEach((t) => set.add(t)));
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
+    // Image tags follow the controlled taxonomy order; others alphabetical.
+    const tax = (t: string) => { const i = IMAGE_TAXONOMY_ORDER.indexOf(t); return i < 0 ? 999 : i; };
+    return Array.from(set)
+      .sort((a, b) => tax(a) - tax(b) || a.localeCompare(b))
+      .slice(0, 30); // cap the filter at 30 chips
   }, [jobs, modality]);
 
   const filtered = useMemo(() => {
@@ -590,49 +608,6 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
   );
 }
 
-function TranslateButton({ text }: { text?: string }) {
-  const [translation, setTranslation] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [show, setShow] = useState(false);
-
-  const run = async () => {
-    if (!text) return;
-    if (translation) { setShow((s) => !s); return; }
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/sxs/translate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      const data = await res.json();
-      setTranslation(data.translation || "(no translation)");
-      setShow(true);
-    } catch {
-      setTranslation("Translation failed");
-      setShow(true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="mt-2">
-      <button
-        onClick={run}
-        disabled={loading || !text}
-        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 hover:bg-indigo-500/20 transition-all disabled:opacity-40"
-      >
-        {loading ? "Translating…" : translation ? (show ? "Hide English" : "Show English") : "Translate to English"}
-      </button>
-      {show && translation && (
-        <p className="mt-2 text-sm text-emerald-200/90 font-light italic leading-relaxed bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-4 py-3">
-          {translation}
-        </p>
-      )}
-    </div>
-  );
-}
 
 const ACCENTS: { text: string; dot: string }[] = [
   { text: "text-indigo-300", dot: "bg-indigo-500" },

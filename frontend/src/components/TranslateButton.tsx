@@ -3,9 +3,14 @@ import { useState, useEffect } from "react";
 import { API_BASE_URL } from "@/lib/api";
 
 // ===================================================================
-// TranslateButton — quick Gemini translation of the prompt/text.
-// POSTs {text} to /api/sxs/translate and toggles the returned
-// translation. Mirrors the inline button in human-eval/ai-evals.
+// TranslateButton — on-demand Gemini translation of the current prompt.
+//
+// Translation is opt-in per prompt (most prompts are already English, so
+// auto-translating every one is wasteful):
+//   • Nothing is translated until the user clicks "Translate to English".
+//   • Clicking again toggles the shown translation for THIS prompt.
+//   • When the prompt changes, state resets so the button returns to
+//     "Translate to English" and never shows the previous prompt's text.
 // ===================================================================
 
 export default function TranslateButton({ text }: { text?: string }) {
@@ -13,8 +18,8 @@ export default function TranslateButton({ text }: { text?: string }) {
   const [loading, setLoading] = useState(false);
   const [show, setShow] = useState(false);
 
-  // Reset whenever the source text changes (new pair) so a stale translation
-  // never carries over from the previous pair.
+  // Reset on every new prompt so a stale translation never carries over and
+  // the user must explicitly request translation again.
   useEffect(() => {
     setTranslation(null);
     setShow(false);
@@ -23,7 +28,7 @@ export default function TranslateButton({ text }: { text?: string }) {
 
   const run = async () => {
     if (!text) return;
-    if (translation) { setShow((s) => !s); return; }
+    if (translation) { setShow((s) => !s); return; }  // already fetched → toggle
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/api/sxs/translate`, {

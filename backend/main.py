@@ -2027,16 +2027,27 @@ async def get_user_leaderboard():
 
 
 @app.get("/api/sxs/stats")
-async def sxs_stats(ldap: Optional[str] = Query(None)):
+async def sxs_stats(ldap: Optional[str] = Query(None), tag: Optional[str] = Query(None)):
     """Win rates / leaderboard for the isolated SxS test DB (sxs_votes + sxs_jobs).
-    Scores use the Core-5 1-5 rubric (no default-skip)."""
+    Scores use the Core-5 1-5 rubric (no default-skip).
+
+    Optional `tag` filters to jobs whose categories include that tag (and, in turn,
+    restricts votes to those jobs)."""
     from google.cloud import firestore as _fs
     db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
     jobs = {
         d.id: d.to_dict()
         for d in db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream()
     }
+    tag_l = (tag or "").strip().lower()
+    if tag_l:
+        jobs = {
+            jid: j for jid, j in jobs.items()
+            if tag_l in [str(c).lower() for c in (j.get("categories") or [])]
+        }
     votes = [d.to_dict() for d in db.collection(SXS_VOTES_COLLECTION).stream()]
+    if tag_l:
+        votes = [v for v in votes if v.get("job_id") in jobs]
 
     def _mode_of(job):
         if not job:
@@ -2132,10 +2143,68 @@ async def sxs_stats(ldap: Optional[str] = Query(None)):
             "skus": sorted(leaderboard, key=lambda x: x["win_rate"], reverse=True),
         }
 
-    result = {"global": _compute(votes)}
+    def _tags_of(vote):
+        return [str(c) for c in (jobs.get(vote.get("job_id")) or {}).get("categories") or []]
+
+    def _by_tag(v_list):
+        """Per-tag → per-model win rates (ties credit both winner and loser)."""
+        tags: Dict[str, dict] = {}
+        for vote in v_list:
+            wm, lm = vote.get("winner_model"), vote.get("loser_model")
+            is_tie = (vote.get("winner_side") or "").strip().lower() == "tie"
+            for tag in _tags_of(vote):
+                t = tags.setdefault(tag, {"votes": 0, "by_model": {}})
+                t["votes"] += 1
+                for mid in (wm, lm):
+                    if mid:
+                        t["by_model"].setdefault(mid, {"wins": 0, "total": 0})
+                if is_tie:
+                    for mid in (wm, lm):
+                        if mid:
+                            t["by_model"][mid]["wins"] += 1
+                            t["by_model"][mid]["total"] += 1
+                else:
+                    if wm:
+                        t["by_model"][wm]["wins"] += 1
+                        t["by_model"][wm]["total"] += 1
+                    if lm:
+                        t["by_model"][lm]["total"] += 1
+        out = []
+        for tag, data in tags.items():
+            models = [
+                {"model_id": mid, "wins": md["wins"], "total": md["total"],
+                 "win_rate": round((md["wins"] / md["total"]) * 100, 1) if md["total"] else 0.0}
+                for mid, md in data["by_model"].items()
+            ]
+            models.sort(key=lambda x: x["win_rate"], reverse=True)
+            out.append({"tag": tag, "votes": data["votes"], "models": models})
+        out.sort(key=lambda x: x["votes"], reverse=True)
+        return out
+
+    def _bundle(v_list):
+        out = _compute(v_list)
+        out["by_tag"] = _by_tag(v_list)
+        return out
+
+    result = {"global": _bundle(votes)}
     if ldap:
-        result["user"] = _compute([v for v in votes if v.get("ldap", "anonymous") == ldap])
+        result["user"] = _bundle([v for v in votes if v.get("ldap", "anonymous") == ldap])
     return result
+
+
+@app.get("/api/sxs/tags")
+async def sxs_tags():
+    """Distinct categories across the SxS video jobs (sxs_jobs), for the video
+    analytics tag filter. Sourced from the same collection the stats use so the
+    picker and the by-tag matrix always agree."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+    tags = set()
+    for doc in db.collection(SXS_COLLECTION).where("source", "==", "sxs_auto").stream():
+        for t in (doc.to_dict().get("categories") or []):
+            if t:
+                tags.add(str(t))
+    return {"status": "success", "tags": sorted(tags)}
 
 
 @app.get("/api/sxs/leaderboard/users")
@@ -2217,6 +2286,177 @@ async def analytics_latency():
     order = {"t2v": 0, "i2v": 1, "r2v": 2, "t2i": 3, "i2i": 4, "tts": 5}
     rows.sort(key=lambda x: (order.get(x["modality"], 9), -x["samples"]))
     return {"rows": rows, "modalities": ["t2v", "i2v", "r2v", "t2i", "i2i", "tts"]}
+
+
+# ===================================================================
+# Benchmark: "Where Google wins" win-map + human/AI-judge agreement
+# ===================================================================
+def _wilson(k: int, n: int, z: float = 1.96):
+    """Wilson score interval for a binomial proportion. Returns (low, p, high)."""
+    if n <= 0:
+        return (0.0, 0.0, 0.0)
+    import math
+    p = k / n
+    denom = 1 + z * z / n
+    center = (p + z * z / (2 * n)) / denom
+    half = (z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / denom
+    return (max(0.0, center - half), p, min(1.0, center + half))
+
+
+def _is_google_engine(engine: str) -> bool:
+    e = str(engine or "").lower()
+    return any(k in e for k in ("gemini", "imagen", "veo", "omni", "nano", "banana", "doubao-google"))
+
+
+def _engine_family(engine: str) -> str:
+    return "google" if _is_google_engine(engine) else "competitor"
+
+
+@app.get("/api/benchmark/winmap")
+async def benchmark_winmap(min_n: int = 10):
+    """Where do Google models win? Aggregates AI-judge verdicts across image,
+    TTS and video (Google-vs-competitor pairs only) and reports Google's
+    win-rate with Wilson CIs + n, sliced by category, language, and modality.
+    Segments whose CI clears 50% are surfaced as significant leads / trails.
+    (Human votes are sparse; this uses the AI judge — pair with /agreement.)"""
+    from google.cloud import firestore as _fs
+    from sxs_pipeline import modality_to_type
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+
+    # seg_key -> [google_wins, google_vs_comp_total]
+    segs: Dict[str, list] = {}
+
+    def bump(dim: str, seg: str, won: bool):
+        key = f"{dim}\x1f{seg}"
+        a = segs.setdefault(key, [0, 0])
+        a[1] += 1
+        if won:
+            a[0] += 1
+
+    def record(sides: list, winner: str, categories, language, modality):
+        # sides = list of engine ids present; need exactly one google + one competitor
+        fams = [_engine_family(s) for s in sides if s]
+        if fams.count("google") != 1 or fams.count("competitor") != 1 or not winner:
+            return
+        won = _is_google_engine(winner)
+        bump("overall", "all", won)
+        bump("modality", modality or "?", won)
+        if language:
+            bump("language", str(language), won)
+        for c in (categories or []):
+            cs = str(c)
+            if cs and not cs.lower().startswith("len:"):
+                bump("category", cs, won)
+
+    # Image
+    for d in db.collection(os.getenv("IMAGE_COLLECTION", "image_jobs")).stream():
+        j = d.to_dict(); ai = j.get("ai_eval") or {}
+        sm = j.get("side_map") or {}
+        record(list(sm.values()), ai.get("winner_engine"),
+               j.get("categories"), None, (j.get("mode") or "t2i"))
+    # TTS
+    for d in db.collection(os.getenv("TTS_COLLECTION", "tts_jobs")).stream():
+        j = d.to_dict(); ai = j.get("ai_eval") or {}
+        sm = j.get("side_map") or {}
+        record(list(sm.values()), ai.get("winner_engine"),
+               j.get("categories"), j.get("language"), "tts")
+    # Video: winner = Creative-Director verdict (the video eval); fall back to
+    # highest Core-5 overall for older jobs.
+    for d in db.collection(os.getenv("SXS_COLLECTION", "sxs_jobs")).where("source", "==", "sxs_auto").stream():
+        j = d.to_dict(); autos = j.get("auto_evals") or {}
+        scored = {k: v.get("overall_score") for k, v in autos.items()
+                  if isinstance(v, dict) and isinstance(v.get("overall_score"), (int, float))}
+        de = j.get("director_eval") or {}
+        winner = de.get("winner_model") or (max(scored, key=scored.get) if len(scored) >= 2 else None)
+        sides = list(scored.keys()) or [r.get("engine") or r.get("model")
+                                        for r in (j.get("results") or {}).values() if isinstance(r, dict)]
+        if len([s for s in sides if s]) < 2 or not winner:
+            continue
+        record(sides, winner, j.get("categories"),
+               j.get("language"), modality_to_type(j.get("modality") or "t2v"))
+
+    def rows_for(dim: str, apply_min: bool = True):
+        out = []
+        pfx = f"{dim}\x1f"
+        for key, (wins, n) in segs.items():
+            if not key.startswith(pfx):
+                continue
+            # Skip thin segments — a CI on n<min_n is not meaningful.
+            if apply_min and n < min_n:
+                continue
+            lo, p, hi = _wilson(wins, n)
+            verdict = "lead" if lo > 0.5 else ("trail" if hi < 0.5 else "tie")
+            out.append({
+                "segment": key[len(pfx):], "n": n,
+                "win_rate": round(p * 100, 1),
+                "ci_low": round(lo * 100, 1), "ci_high": round(hi * 100, 1),
+                "verdict": verdict,
+            })
+        return sorted(out, key=lambda x: (-x["n"], -x["win_rate"]))
+
+    by_cat = rows_for("category")
+    by_lang = rows_for("language")
+    by_mod = rows_for("modality")
+    overall = rows_for("overall")
+    all_segments = by_cat + by_lang + by_mod
+    leads = sorted([s for s in all_segments if s["verdict"] == "lead"],
+                   key=lambda x: -x["win_rate"])
+    trails = sorted([s for s in all_segments if s["verdict"] == "trail"],
+                    key=lambda x: x["win_rate"])
+    return {
+        "overall": overall[0] if overall else {"win_rate": 0, "ci_low": 0, "ci_high": 0, "n": 0},
+        "by_category": by_cat, "by_language": by_lang, "by_modality": by_mod,
+        "leads": leads, "trails": trails,
+        "note": "Google win-rate from the AI judge on Google-vs-competitor pairs; CI = 95% Wilson.",
+    }
+
+
+@app.get("/api/analytics/agreement")
+async def analytics_agreement():
+    """How often does the AI judge agree with human blind votes? Per modality:
+    of jobs that have BOTH a human vote (winner_model) and an AI verdict
+    (ai_eval.winner_engine / director), the % where they pick the same engine."""
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+
+    def ai_winner_map(coll: str):
+        m = {}
+        for d in db.collection(coll).stream():
+            j = d.to_dict()
+            # video: Creative-Director verdict; image/tts: ai_eval winner; else Core-5.
+            w = (j.get("director_eval") or {}).get("winner_model") or (j.get("ai_eval") or {}).get("winner_engine")
+            if not w:
+                autos = j.get("auto_evals") or {}
+                scored = {k: v.get("overall_score") for k, v in autos.items()
+                          if isinstance(v, dict) and isinstance(v.get("overall_score"), (int, float))}
+                w = max(scored, key=scored.get) if len(scored) >= 2 else None
+            if w:
+                m[d.id] = w
+        return m
+
+    out = {}
+    total_agree = total_n = 0
+    for label, coll, votes_coll in (
+        ("image", os.getenv("IMAGE_COLLECTION", "image_jobs"), os.getenv("IMAGE_VOTES_COLLECTION", "image_votes")),
+        ("tts", os.getenv("TTS_COLLECTION", "tts_jobs"), os.getenv("TTS_VOTES_COLLECTION", "tts_votes")),
+        ("video", os.getenv("SXS_COLLECTION", "sxs_jobs"), SXS_VOTES_COLLECTION),
+    ):
+        aiw = ai_winner_map(coll)
+        agree = n = 0
+        for d in db.collection(votes_coll).stream():
+            v = d.to_dict()
+            hw = v.get("winner_model")
+            jid = v.get("job_id")
+            if hw and jid in aiw:
+                n += 1
+                if str(hw) == str(aiw[jid]):
+                    agree += 1
+        pct = round(agree / n * 100, 1) if n else None
+        out[label] = {"agree": agree, "n": n, "pct": pct}
+        total_agree += agree; total_n += n
+    out["overall"] = {"agree": total_agree, "n": total_n,
+                      "pct": round(total_agree / total_n * 100, 1) if total_n else None}
+    return out
 
 
 # ===================================================================
@@ -2491,6 +2731,90 @@ async def votes_count(ldap: str = Query("")):
         except Exception:
             pass
     return {"ldap": ldap, "count": total, "required": required, "unlocked": total >= required}
+
+
+@app.get("/api/leaderboard")
+async def full_leaderboard():
+    """Voter leaderboard: top overall + top per modality (video / image / tts).
+
+    Anti-gaming: the blind A/B label is randomized per job, so a genuine voter's
+    A vs B split trends ~50/50 over many votes. A voter who almost always picks
+    the SAME side is voting blindly to farm the leaderboard — we exclude anyone
+    with >= MIN_DECISIVE non-tie votes whose dominant side is >= ONE_SIDED of them.
+    """
+    from google.cloud import firestore as _fs
+    db = _fs.Client(project=os.getenv("GCP_PROJECT_ID", "vital-octagon-19612"))
+
+    MIN_DECISIVE = 5          # need enough A/B votes before judging one-sidedness
+    ONE_SIDED = 0.9           # >=90% on one side = suspected blind voting
+
+    # modality -> collections that feed it ("votes" = legacy video).
+    MOD_COLLECTIONS = {
+        "video": (SXS_VOTES_COLLECTION, "votes"),
+        "image": ("image_votes",),
+        "tts": ("tts_votes",),
+    }
+
+    # Per-voter tally: counts per modality + side distribution (a/b/tie).
+    voters: Dict[str, dict] = {}
+    for modality, colls in MOD_COLLECTIONS.items():
+        for coll in colls:
+            try:
+                docs = db.collection(coll).stream()
+            except Exception:
+                continue
+            for d in docs:
+                v = d.to_dict() or {}
+                ld = v.get("ldap")
+                if not ld or str(ld).lower() in ("anonymous", "global"):
+                    continue
+                ld = str(ld)
+                rec = voters.setdefault(ld, {
+                    "ldap": ld, "total": 0,
+                    "video": 0, "image": 0, "tts": 0,
+                    "a": 0, "b": 0, "tie": 0,
+                })
+                rec[modality] += 1
+                rec["total"] += 1
+                side = str(v.get("winner_side") or "").strip().lower()
+                if side in ("a", "b", "tie"):
+                    rec[side] += 1
+
+    excluded = []
+    clean = []
+    for rec in voters.values():
+        decisive = rec["a"] + rec["b"]
+        dom = max(rec["a"], rec["b"])
+        frac = (dom / decisive) if decisive else 0.0
+        if decisive >= MIN_DECISIVE and frac >= ONE_SIDED:
+            excluded.append({
+                "ldap": rec["ldap"], "total": rec["total"],
+                "dominant_side": "A" if rec["a"] >= rec["b"] else "B",
+                "dominant_pct": round(frac * 100, 1),
+            })
+        else:
+            clean.append(rec)
+
+    def _top(key, n=50):
+        rows = [r for r in clean if r[key] > 0]
+        rows.sort(key=lambda r: r[key], reverse=True)
+        return [
+            {"ldap": r["ldap"], "count": r[key], "total": r["total"],
+             "video": r["video"], "image": r["image"], "tts": r["tts"]}
+            for r in rows[:n]
+        ]
+
+    return {
+        "status": "success",
+        "overall": _top("total"),
+        "by_modality": {
+            "video": _top("video"),
+            "image": _top("image"),
+            "tts": _top("tts"),
+        },
+        "excluded": sorted(excluded, key=lambda x: x["total"], reverse=True),
+        "rules": {"min_decisive": MIN_DECISIVE, "one_sided_pct": int(ONE_SIDED * 100)},
+    }
 
 
 @app.get("/api/votes/leaderboard")

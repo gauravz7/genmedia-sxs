@@ -198,10 +198,12 @@ async def _gen_gemini(case: dict) -> dict:
 
 
 async def _gen_eleven(case: dict) -> dict:
-    # ElevenLabs is single-voice; use the case voice (mapped) or first speaker.
-    voice = case.get("voice", "Rachel")
+    # ElevenLabs-specific voice override (`el_voice`) wins so Gemini keeps its own
+    # `voice`; else fall back to the shared voice / first speaker. Native-language
+    # voice still applies when el_voice/voice don't map (see _resolve_voice).
+    voice = case.get("el_voice") or case.get("voice", "Rachel")
     speakers = _speakers(case)
-    if speakers:
+    if speakers and not case.get("el_voice"):
         voice = speakers[0].get("voice", voice)
     return await generate_elevenlabs_tts(
         text=case.get("text", "") or "",

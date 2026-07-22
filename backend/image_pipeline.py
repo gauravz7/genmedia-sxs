@@ -287,19 +287,20 @@ async def process_job(job_id: str, case: dict) -> str:
 
     # Auto-tag the job from the prompt (+ input image) when no categories were
     # supplied in the input. Stored on the shared `categories` field, so the same
-    # tags surface in human eval (arena), AI evals, and analytics.
+    # tags surface in human eval (arena), AI evals, and analytics. Original input
+    # categories (if any) are preserved under `categories_raw`.
     try:
-        if not (job.get("categories") or []):
-            from providers.vertex_provider import generate_tags_with_gemini
-            prompt = job.get("prompt") or case.get("prompt") or ""
-            in_img = job.get("input_image") or _input_image(case) or None
-            tags = await generate_tags_with_gemini(prompt, in_img)
-            if not tags:  # invalid image -> [] -> retry text-only
-                tags = await generate_tags_with_gemini(prompt)
-            if tags:
-                db.collection(IMAGE_COLLECTION).document(job_id).update({"categories": tags})
+        from image_taxonomy import classify_image_categories
+        prompt = job.get("prompt") or case.get("prompt") or ""
+        raw = job.get("categories") or []
+        tags = await classify_image_categories(prompt, job.get("mode") or _mode(case))
+        if tags:
+            patch = {"categories": tags}
+            if raw and not job.get("categories_raw"):
+                patch["categories_raw"] = raw
+            db.collection(IMAGE_COLLECTION).document(job_id).update(patch)
     except Exception as e:  # pragma: no cover
-        print(f"[image_pipeline] auto-tag failed for {job_id}: {e}")
+        print(f"[image_pipeline] taxonomy tagging failed for {job_id}: {e}")
 
     try:
         from image_evaluator import run_image_evaluation

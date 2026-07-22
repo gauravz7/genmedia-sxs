@@ -2,7 +2,7 @@
 
 For a single case this module:
   1. Generates a video on BOTH Seedance 2.0 (via fal) and Gemini Omni
-     (bouncybohr, via the Agent Platform / genai Interactions API).
+     (gemini-omni-flash-preview, via the genai Interactions API).
   2. Persists both outputs to GCS.
   3. Writes / patches a Firestore job doc in the `eval_jobs` collection.
   4. Runs the Core-5 auto-eval (video_evaluator_sdk.run_core5_evaluation) on
@@ -37,7 +37,10 @@ from util.gcs_utils import download_blob_to_bytes, upload_from_bytes
 SEEDANCE_KEY = "seedance-2-0-r2v"
 SEEDANCE_MODEL_ID = "bytedance/seedance-2.0/reference-to-video"
 
-OMNI_MODEL_ID = "bouncybohr"
+OMNI_MODEL_ID = os.getenv("OMNI_MODEL_ID", "gemini-omni-flash-preview")
+
+# Preview API revision required for the gemini-omni-flash-preview interactions API.
+OMNI_API_REVISION = os.getenv("OMNI_API_REVISION", "2026-05-20")
 
 # Modality (R2V / I2V / T2V / V2V) -> Omni model key. V2V maps to the r2v key.
 _OMNI_KEY_BY_MODALITY = {
@@ -51,7 +54,7 @@ _OMNI_KEY_BY_MODALITY = {
 # production `eval_jobs`. Override with env SXS_COLLECTION if needed.
 EVAL_COLLECTION = os.getenv("SXS_COLLECTION", "sxs_jobs")
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "vital-octagon-19612")
-OMNI_PROJECT = os.getenv("OMNI_PROJECT", "cloud-llm-preview1")
+OMNI_PROJECT = os.getenv("OMNI_PROJECT", "vital-octagon-19612")
 AUTO_EVAL_MODEL_NAME = "gemini-3.5-flash"
 
 
@@ -244,7 +247,7 @@ def _http_get_bytes(url: str) -> bytes:
     return resp.content
 
 
-# --- generation: Gemini Omni (bouncybohr) ----------------------------------
+# --- generation: Gemini Omni (gemini-omni-flash-preview) ----------------------------------
 
 async def generate_omni(case: dict) -> dict:
     """Generate on Gemini Omni via the genai Interactions API."""
@@ -254,7 +257,10 @@ async def generate_omni(case: dict) -> dict:
             vertexai=True,
             project=OMNI_PROJECT,
             location="global",
-            http_options=types.HttpOptions(timeout=600000),  # ms (=10 min)
+            http_options=types.HttpOptions(
+                timeout=600000,  # ms (=10 min)
+                headers={"Api-Revision": OMNI_API_REVISION},
+            ),
         )
 
         inputs: List[Dict[str, Any]] = [
@@ -289,7 +295,7 @@ async def generate_omni(case: dict) -> dict:
 
         latency = round(time.time() - start_time, 2)
         return _standard_result(
-            "Omni (bouncybohr)",
+            "Omni (gemini-omni-flash-preview)",
             status="success",
             url=gcs_url,
             latency=latency,
@@ -300,7 +306,7 @@ async def generate_omni(case: dict) -> dict:
         )
     except Exception as e:
         return _standard_result(
-            "Omni (bouncybohr)",
+            "Omni (gemini-omni-flash-preview)",
             status="error",
             error=str(e),
             latency=round(time.time() - start_time, 2),
@@ -426,7 +432,7 @@ async def process_job(job_id: str, case: dict) -> str:
         )
     if isinstance(omni_res, Exception):
         omni_res = _standard_result(
-            "Omni (bouncybohr)", status="error", error=str(omni_res)
+            "Omni (gemini-omni-flash-preview)", status="error", error=str(omni_res)
         )
 
     db = _get_firestore_client()
@@ -704,7 +710,7 @@ def run_auto_eval(job_id: str) -> None:
     calls run_core5_evaluation for each model concurrently. Reference videos
     double as `source_videos`. Results are stored under auto_evals[model_key].
     """
-    from video_evaluator_sdk import run_core5_evaluation, run_director_pairwise  # lazy import
+    from video_evaluator_sdk import run_core5_evaluation, run_director_pairwise, EVAL_MODEL as VIDEO_EVAL_MODEL  # lazy import
 
     db = _get_firestore_client()
     doc_ref = db.collection(EVAL_COLLECTION).document(job_id)
@@ -765,19 +771,21 @@ def run_auto_eval(job_id: str) -> None:
         # Pairwise "Creative Director" verdict — only when BOTH models produced
         # video. Video A = Seedance, Video B = Omni (fixed mapping for the AI judge).
         path_by_key = {mk: vp for mk, vp in tasks}
-        a_path = path_by_key.get(SEEDANCE_KEY)
-        b_path = next((vp for mk, vp in tasks if "omni" in mk), None)
+        # Match ANY Seedance variant (t2v/i2v/r2v), not just the r2v key.
+        seedance_key = next((mk for mk, _ in tasks if "seedance" in mk or "doubao" in mk), None)
+        omni_key = next((mk for mk, _ in tasks if "omni" in mk), None)
+        a_path = path_by_key.get(seedance_key) if seedance_key else None
+        b_path = path_by_key.get(omni_key) if omni_key else None
         if a_path and b_path:
             try:
                 director = run_director_pairwise(a_path, b_path, prompt, ref_image_paths or None)
                 if director:
-                    omni_key = next((mk for mk, _ in tasks if "omni" in mk), "omni")
                     verdict = (director.get("verdict") or "").strip().upper()
-                    director["winner_model"] = SEEDANCE_KEY if verdict == "A" else (omni_key if verdict == "B" else None)
-                    director["video_a"] = SEEDANCE_KEY
+                    director["winner_model"] = seedance_key if verdict == "A" else (omni_key if verdict == "B" else None)
+                    director["video_a"] = seedance_key
                     director["video_b"] = omni_key
                     director["evaluated_at"] = time.time()
-                    director["model"] = AUTO_EVAL_MODEL_NAME
+                    director["model"] = VIDEO_EVAL_MODEL
                     update_payload["director_eval"] = director
             except Exception as e:
                 print(f"[sxs_pipeline] director eval failed: {e}")

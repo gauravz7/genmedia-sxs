@@ -1,223 +1,94 @@
 # GenMedia SxS
 
-**Internal benchmarking platform for side-by-side (SxS) evaluation of generative media models.**
+**Blind side-by-side (SxS) evaluation platform for generative-media models — image, video, and text-to-speech.**
 
-Compare Veo, Kling, Seedance and other AI video models through blind pairwise testing with structured human ratings.
+Runs head-to-head blind A/B comparisons scored by both human voters and an automatic LLM-as-judge, then aggregates win-rates, latency, and quality signals into a shared analytics dashboard.
+
+## What it does
+
+- **Blind A/B arenas** for image, video, and TTS — model identities hidden, left/right randomized.
+- **Human voting** with per-metric 1–5 scoring and an overall winner (A / B / tie).
+- **Automatic LLM-as-judge** — a multimodal model scores each pair on modality-specific rubrics (image/video visual quality, prompt adherence, artifacts; TTS naturalness, expressiveness, pacing, pronunciation).
+- **Analytics** — win-rates with 95% Wilson confidence intervals, generation latency (avg / p50), **human ↔ AI-judge agreement**, and a segmented **win-map** showing where each model family adds the most value (by category and language).
+- **Multilingual TTS** — English, Hindi, Hinglish, and Hindi-Bengali, with a graceful multilingual fallback for any other language.
+- **Controlled 30-category image taxonomy** for consistent tagging and filtering across the arena, AI evals, and analytics.
+
+## Models compared
+
+- **Image:** Gemini image (Pro / Flash / Flash-Lite) vs GPT-image-2 (low / medium / high) vs MAI-Image.
+- **Video:** Veo, Seedance, Omni, Kling — across T2V, I2V, and R2V.
+- **TTS:** Gemini TTS vs ElevenLabs v3 (single-speaker and multi-speaker dialogue).
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  Cloud Run                       │
-│  ┌──────────────┐      ┌──────────────────────┐ │
-│  │  Next.js      │      │  FastAPI Backend     │ │
-│  │  (static)     │─────▶│  uvicorn :8080       │ │
-│  │  React 19     │      │                      │ │
-│  │  Tailwind CSS │      │  /api/*  endpoints   │ │
-│  └──────────────┘      └────────┬─────────────┘ │
-└─────────────────────────────────┼───────────────┘
-                                  │
-          ┌───────────────────────┼───────────────────────┐
-          │                       │                       │
-  ┌───────▼───────┐   ┌──────────▼────────┐   ┌─────────▼────────┐
-  │  Firestore     │   │  Cloud Storage     │   │  Model APIs       │
-  │  (jobs, votes, │   │  (videos, images)  │   │  • Vertex AI (Veo)│
-  │   prompts)     │   │                    │   │  • FAL (Kling,    │
-  └───────────────┘   └───────────────────┘   │    Seedance)      │
-                                               └──────────────────┘
+┌──────────────────────────────────────────────┐
+│                  Cloud Run                     │
+│  ┌──────────────┐     ┌───────────────────┐   │
+│  │  Next.js      │────▶│  FastAPI backend  │   │
+│  │ (static build)│     │  uvicorn :8080    │   │
+│  └──────────────┘     └─────────┬─────────┘   │
+└────────────────────────────────┼──────────────┘
+              ┌───────────────────┼────────────────────┐
+      ┌───────▼──────┐   ┌────────▼─────────┐   ┌───────▼─────────┐
+      │  Firestore    │   │  Object storage  │   │  Model + judge  │
+      │ jobs / votes  │   │  (GCS)           │   │  APIs           │
+      └──────────────┘   └──────────────────┘   └─────────────────┘
 ```
 
-- **Frontend:** Next.js 16 / React 19 / Tailwind CSS — static export served by FastAPI
-- **Backend:** Python FastAPI orchestrating Vertex AI, FAL, Firestore, and GCS
-- **Database:** Google Firestore (collections: `eval_jobs`, `prompts`, `votes`)
-- **Storage:** Google Cloud Storage
-- **Deployment:** Unified Docker container on Google Cloud Run
+- **Frontend:** Next.js (static export) + React + Tailwind CSS, served by the backend.
+- **Backend:** Python FastAPI orchestrating the model/judge APIs, Firestore, and object storage.
+- **Database:** Firestore — isolated collections per modality: `sxs_jobs` / `image_jobs` / `tts_jobs` and their `*_votes`.
+- **Storage:** Cloud Storage (GCS) for generated media, served via an authenticated media proxy.
+- **Judge:** a multimodal model on Vertex AI (`gemini-3.5-flash`, high-thinking) for image / video / TTS.
+- **Deployment:** a single unified Docker image on Cloud Run.
 
-## Features
+## Routes
 
-- **Blind SxS Evaluation** — Randomized left/right video pairing with 6-metric rating (Motion Quality, Prompt Following, Aesthetic, Audio Expressiveness, Audio-Visual Sync, Audio Prompt Following)
-- **Multi-Model Generation** — Text-to-Video (T2V), Image-to-Video (I2V), Reference-to-Video (R2V) across Veo, Kling, Seedance
-- **Admin Console** — Prompt management, model registry, batch CSV/Google Sheets import, auto-tagging via Gemini
-- **Leaderboard & Analytics** — Real-time win rates, per-category breakdowns, voter leaderboard
-- **10-Vote Gate** — Users must complete 10 evaluations before unlocking prompt submission
+| Route | Purpose |
+|---|---|
+| `/` | Landing hub |
+| `/image-sxs`, `/video-sxs`, `/tts-sxs` | Blind human A/B arenas |
+| `/ai-evals` | All AI-judge verdicts (per-model scores, winner) |
+| `/analytics` | Win-rates + CIs, latency, agreement, win-map |
+| `/leaderboard` | Top evaluators |
+| `/admin` | JSON batch upload, model registry, generations |
 
-## Getting Started
+## Selected API
 
-### Prerequisites
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/{image,tts}/upload` | POST | Upload a cases JSON → generate + auto-judge (admin) |
+| `/api/{sxs,image,tts}/pair` | GET | Fetch a blind A/B pair for voting |
+| `/api/{sxs,image,tts}/vote` | POST | Record a blind human vote |
+| `/api/{sxs,image,tts}/stats` | GET | Win-rates + per-metric scores |
+| `/api/analytics/latency` | GET | Avg / p50 latency per model × modality |
+| `/api/benchmark/winmap` | GET | Segmented win-map with Wilson CIs |
+| `/api/analytics/agreement` | GET | Human vs AI-judge agreement |
 
-- Python 3.12+
-- Node.js 20+
-- GCP project with Firestore, Cloud Storage, and Vertex AI enabled
-- FAL API key (for Kling/Seedance)
+## Input format (admin JSON upload)
 
-### Local Development
+Each modality accepts a JSON array of case objects (fields only — supply your own content):
+
+- **Image:** `{ id, mode: "t2i"|"i2i", prompt, matchup, aspect_ratio?, input_image?, categories? }`
+- **Video:** `{ id, prompt, modality: "t2v"|"i2v"|"r2v", aspect_ratio?, reference_images?, reference_videos?, categories? }`
+- **TTS:** `{ id, text, voice, language, style_prompt?, mode?: "single"|"multi", speakers?, el_voice?, categories? }`
+
+## Local development
 
 ```bash
-# 1. Clone and navigate
-git clone https://github.com/gauravz7/genmedia-sxs.git
-cd genmedia-sxs/project-pulse
+# Backend env (NOT committed) — set in backend/.env:
+#   GCP_PROJECT_ID, GCS_BUCKET_NAME, provider API keys, ADMIN_USER/ADMIN_PASS
 
-# 2. Backend setup
-cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+# Build the frontend (static export served by FastAPI)
+cd frontend && npm ci && npm run build
 
-# 3. Create backend/.env (never commit this file)
-cat > .env << 'EOF'
-GCP_PROJECT_ID=your-gcp-project
-GCS_BUCKET_NAME=your-bucket
-FAL_KEY=your-fal-api-key
-OUTPUT_GCS_BUCKET=gs://your-bucket
-ADMIN_USER=admin
-ADMIN_PASS=your-admin-password
-EOF
-
-# 4. Start backend
-uvicorn main:app --reload --port 8011
-
-# 5. Frontend (new terminal)
-cd ../frontend
-npm ci
-npm run dev
+# Run the backend (serves API + static UI)
+cd ../backend && uvicorn main:app --port 8080
 ```
 
-The frontend proxies API calls to the backend via Next.js rewrites (`/proxy-api/` → `localhost:8011`).
+Deploy the unified image with the provided deploy script (`deploy_v2.sh`).
 
-- Admin console: `http://localhost:3000/admin`
-- SxS evaluation: `http://localhost:3000/`
-- API docs: `http://localhost:8011/docs`
+## Repository notes
 
-## Deployment
-
-Unified deployment to Cloud Run (builds frontend + backend in a single container):
-
-```bash
-./deploy_unified.sh
-```
-
-This runs `gcloud run deploy` with the multi-stage `Dockerfile` that:
-1. Builds the Next.js static export (`npm run build`)
-2. Packages it with the FastAPI backend
-3. Serves everything via uvicorn on port 8080
-
-Set secrets as Cloud Run env vars (not in code):
-```bash
-gcloud run services update genmedia-sxs \
-  --set-env-vars "FAL_KEY=...,ADMIN_PASS=..." \
-  --region us-central1
-```
-
-## Input Formats (Video / Image / Speech)
-
-All three modalities accept a **JSON array** of case objects, or `{"cases": [ … ]}`.
-A case is identified by **`customer` + `id`** — already-completed cases are skipped on
-re-run (dedup), and only fully-failed/incomplete ones are regenerated.
-
-### 🎬 Video SxS — Seedance 2.0 vs Gemini Omni
-Upload via `/sxs` (GCS path or file upload) or admin **Generate (JSON)** → `POST /api/admin/generate-json`.
-Each case runs on the active models matching its modality (Seedance per-modality + Omni).
-
-| Field | Required | Notes |
-|-------|----------|-------|
-| `prompt` | **yes** | generation prompt |
-| `modality` | **yes** | `T2V`, `I2V`, `R2V`. Also accepts `V2V`, `FLF2V (first & last frame locked)`, `Ref2V`. Classification: FLF2V / first-frame → **i2v**; V2V / Ref2V → **r2v** |
-| `id` | recommended | case id (dedup key with `customer`) |
-| `customer` | optional | grouping key |
-| `reference_images` | conditional | array of `gs://` / `https://` URLs. Required for **I2V** (first frame; a 2nd image = last frame for FLF2V) and **R2V** |
-| `reference_videos` | conditional | array of video URLs. For **V2V** (source video) / R2V |
-| `aspect_ratio` | optional | `16:9` (default) or `9:16` |
-| `duration` | optional | integer seconds 4–15 (default 8) |
-
-```json
-{
-  "customer": "opus", "id": "V-1", "modality": "I2V",
-  "prompt": "A green frog hops right onto a second lily pad, then a third.",
-  "reference_images": ["gs://project-pulse/sxs/opus/inputs/ref1.png"],
-  "reference_videos": [], "aspect_ratio": "16:9", "duration": 8
-}
-```
-
-### 🖼️ Image SxS — Gemini Image vs GPT-image
-Sample: `backend/image_cases.sample.json`.
-
-| Field | Required | Notes |
-|-------|----------|-------|
-| `prompt` | **yes** | image prompt |
-| `id` | recommended | case id |
-| `mode` | optional | `t2i` (default) or `i2i` |
-| `input_image` (or `input_images`) | conditional | **required for `i2i`** — `gs://` / path |
-| `matchup` | optional | model pair; default = pair #1. One of: `gemini-3.1-flash-image_vs_gpt2-medium`, `gemini-3-pro-image_vs_gpt2-high`, `instant-ramen_vs_gpt2-low` |
-| `customer`, `categories` / `tags` | optional | metadata |
-
-```json
-{ "id": "img3", "mode": "i2i", "prompt": "Make it snow heavily and add a warm sunset glow",
-  "input_image": "refs/koi.png", "matchup": "gemini-3-pro-image_vs_gpt2-high" }
-```
-
-### 🔊 Speech / TTS SxS — Gemini TTS vs ElevenLabs
-Sample: `backend/tts_cases.sample.json`.
-
-| Field | Required | Notes |
-|-------|----------|-------|
-| `text` | **yes** | transcript; supports inline cues like `[cheerful]`, `[whispers]`, `[pause]` |
-| `id` | recommended | case id |
-| `voice` | optional | Gemini voice name (default `Kore`; e.g. Charon, Puck) |
-| `style_prompt` | optional | delivery / tone direction |
-| `language` | optional | e.g. `en`; auto-detected from `text` if omitted |
-| `mode` | optional | `single` (default) or `multi` |
-| `speakers` | conditional | **required for `multi`**: `[{"speaker":"Joe","voice":"Kore"}, …]` |
-| `customer`, `categories` / `tags` | optional | metadata |
-
-```json
-{ "id": "t3", "mode": "multi",
-  "text": "Joe: Hey Jane, how's the launch going?\nJane: [excited] Better than we imagined!",
-  "speakers": [{ "speaker": "Joe", "voice": "Kore" }, { "speaker": "Jane", "voice": "Puck" }],
-  "style_prompt": "Casual chat between two startup co-founders." }
-```
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/models` | GET | List registered models |
-| `/api/models` | POST | Add a new model |
-| `/api/generate` | POST | Trigger async video generation |
-| `/api/evaluation/pair` | GET | Get random SxS pair for rating |
-| `/api/evaluation/vote` | POST | Submit evaluation vote |
-| `/api/evaluation/stats` | GET | Win rates and leaderboard |
-| `/api/admin/prompts` | GET/POST | Manage prompts |
-| `/api/admin/batch/sheet/load` | POST | Import batch from Google Sheet |
-| `/api/admin/generate-tags` | POST | Auto-tag prompts with Gemini |
-| `/api/leaderboard/users` | GET | Voter leaderboard |
-| `/api/health` | GET | Health check |
-
-## Project Structure
-
-```
-project-pulse/
-├── Dockerfile              # Multi-stage unified build
-├── deploy_unified.sh       # Cloud Run deployment script
-├── backend/
-│   ├── main.py             # FastAPI application
-│   ├── requirements.txt    # Python dependencies
-│   ├── providers/
-│   │   ├── fal_provider.py     # FAL API (Kling, Seedance)
-│   │   └── vertex_provider.py  # Vertex AI (Veo, Gemini)
-│   └── util/
-│       ├── gcs_utils.py        # GCS storage operations
-│       └── sheets_utils.py     # Google Sheets integration
-├── frontend/
-│   ├── src/app/
-│   │   ├── page.tsx            # SxS evaluation UI
-│   │   └── admin/page.tsx      # Admin console
-│   ├── package.json
-│   └── next.config.ts
-└── docs/
-    ├── EVALUATOR_GUIDELINES.md
-    └── README_BATCH.md
-```
-
-## Documentation
-
-- [Evaluator Guidelines](docs/EVALUATOR_GUIDELINES.md) — Rating rubric and evaluation criteria
-- [Batch Evaluation Guide](docs/README_BATCH.md) — CSV/Sheets batch import workflow
+- **Credentials, generated media, and evaluation prompt datasets are intentionally not committed** (see `.gitignore`). Provide your own prompt sets and provider keys locally.

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { Crown } from "lucide-react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from "recharts";
 import { API_BASE_URL } from "@/lib/api";
+import TagWinRateMatrix from "@/components/TagWinRateMatrix";
 
 // ===================================================================
 // Image SxS results — rich, self-contained view.
@@ -26,6 +27,15 @@ const METRIC_KEYS = IMAGE_METRICS.map((m) => m.key);
 const METRIC_LABELS: Record<string, string> = Object.fromEntries(IMAGE_METRICS.map((m) => [m.key, m.label]));
 const CHART_COLORS = ["#818cf8", "#f472b6", "#34d399", "#fbbf24", "#60a5fa"];
 
+// Wilson score-interval half-width (95%) as a percentage, for win-rate ± display.
+const ciHalf = (wins: number, total: number): string => {
+  if (!total || total < 10) return "";  // CI not meaningful on thin samples
+  const z = 1.96, p = wins / total;
+  const denom = 1 + (z * z) / total;
+  const half = (z * Math.sqrt((p * (1 - p)) / total + (z * z) / (4 * total * total))) / denom;
+  return ` ±${Math.round(half * 100)}%`;
+};
+
 // Clean display names for image engines (raw id -> label).
 const prettyEngine = (id: string = ""): string => {
   const k = id.toLowerCase();
@@ -46,6 +56,7 @@ export default function ImageResults() {
   const [loading, setLoading] = useState(true);
   const [tags, setTags] = useState<string[]>([]);
   const [selectedTag, setSelectedTag] = useState("");
+  const [modeTab, setModeTab] = useState<"overall" | "t2i" | "i2i">("overall");
 
   // Tag pool (shared `categories` field — same tags as the arena & AI evals).
   useEffect(() => {
@@ -68,9 +79,18 @@ export default function ImageResults() {
   if (loading) return <div className="py-32 flex justify-center"><div className="w-10 h-10 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin"></div></div>;
 
   const g = stats?.global;
-  const skus: any[] = g?.skus || [];
-  const matchups: any[] = g?.matchups || [];
-  const totalEvals = g?.total_evals ?? 0;
+  // Overall = all modes; T2I / I2I come from the backend's per-mode bundle.
+  const active = modeTab === "overall" ? g : g?.by_mode?.[modeTab];
+  const skus: any[] = active?.skus || [];
+  const matchups: any[] = active?.matchups || [];
+  const totalEvals = active?.total_evals ?? 0;
+  const MODE_TABS: { key: "overall" | "t2i" | "i2i"; label: string }[] = [
+    { key: "overall", label: "Overall" },
+    { key: "t2i", label: "T2I" },
+    { key: "i2i", label: "I2I" },
+  ];
+  const modeCount = (k: "overall" | "t2i" | "i2i") =>
+    k === "overall" ? (g?.total_evals ?? 0) : (g?.by_mode?.[k]?.total_evals ?? 0);
 
   // Radar over the image metrics, plotting the top 2-3 engines by win-rate
   // that actually have per-metric scores.
@@ -83,9 +103,23 @@ export default function ImageResults() {
 
   return (
     <div className="space-y-8">
+      {/* Mode toggle: Overall / T2I / I2I */}
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-black uppercase tracking-widest text-gray-600 mr-1">Modality</span>
+        {MODE_TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setModeTab(t.key)}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-all ${modeTab === t.key ? "bg-indigo-500 text-white border-indigo-500" : "bg-white/5 border-white/10 text-gray-400 hover:text-white hover:border-white/20"}`}
+          >
+            {t.label} <span className={`ml-1 font-mono ${modeTab === t.key ? "text-indigo-100" : "text-gray-600"}`}>{modeCount(t.key)}</span>
+          </button>
+        ))}
+      </div>
+
       {/* Header row */}
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs font-black uppercase tracking-widest text-gray-500">{totalEvals} total human votes</span>
+        <span className="text-xs font-black uppercase tracking-widest text-gray-500">{totalEvals} {modeTab === "overall" ? "total" : modeTab.toUpperCase()} human votes</span>
         <span className="text-gray-700">·</span>
         <span className="text-xs font-black uppercase tracking-widest text-gray-500">{skus.length} engine{skus.length !== 1 ? "s" : ""}</span>
       </div>
@@ -106,8 +140,8 @@ export default function ImageResults() {
         {skus.map((s) => (
           <div key={s.model_id} className="bg-[#0b0e14] border border-white/5 rounded-[40px] p-8 text-center space-y-4">
             <div className="text-xs font-black text-gray-500 uppercase tracking-[0.4em] truncate">{prettyEngine(s.model_id)}</div>
-            <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-white to-gray-500">{s.win_rate}%</div>
-            <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">{s.wins}/{s.total} won</div>
+            <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-white to-gray-500">{s.win_rate}%<span className="text-lg align-top text-gray-500">{ciHalf(s.wins, s.total)}</span></div>
+            <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">{s.wins}/{s.total} won · n={s.total}</div>
             {s.latency_ms ? <div className="text-[10px] text-gray-600 uppercase tracking-widest">avg {s.latency_ms}ms</div> : null}
           </div>
         ))}
@@ -186,6 +220,9 @@ export default function ImageResults() {
           </div>
         )}
       </section>
+
+      {/* Win Rate by Tag matrix (overall, all modes) */}
+      <TagWinRateMatrix byTag={g?.by_tag || []} prettyName={prettyEngine} />
 
       {/* Top Evaluators (image voters) */}
       <div>

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { Crown } from "lucide-react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from "recharts";
 import { API_BASE_URL } from "@/lib/api";
+import TagWinRateMatrix from "@/components/TagWinRateMatrix";
 
 // ===================================================================
 // TTS results — rich, self-contained view (Gemini vs ElevenLabs).
@@ -23,6 +24,15 @@ const METRICS = [
   { key: "pronunciation_clarity", label: "Pronunciation" },
 ];
 const CHART_COLORS = ["#818cf8", "#f472b6", "#34d399", "#fbbf24", "#60a5fa"];
+
+// Wilson score-interval half-width (95%); hidden on thin (<10) samples.
+const ciHalf = (wins: number, total: number): string => {
+  if (!total || total < 10) return "";
+  const z = 1.96, p = wins / total;
+  const denom = 1 + (z * z) / total;
+  const half = (z * Math.sqrt((p * (1 - p)) / total + (z * z) / (4 * total * total))) / denom;
+  return ` ±${Math.round(half * 100)}%`;
+};
 
 export default function TtsResults() {
   const [stats, setStats] = useState<any>(null);
@@ -116,8 +126,8 @@ export default function TtsResults() {
         {skus.map((s) => (
           <div key={s.model_id} className="bg-[#0b0e14] border border-white/5 rounded-[40px] p-8 text-center space-y-4">
             <div className="text-xs font-black text-gray-500 uppercase tracking-[0.4em] truncate">{s.model_id}</div>
-            <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-white to-gray-500">{s.win_rate}%</div>
-            <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">{s.wins}/{s.total} won</div>
+            <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-white to-gray-500">{s.win_rate}%<span className="text-lg align-top text-gray-500">{ciHalf(s.wins, s.total)}</span></div>
+            <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">{s.wins}/{s.total} won · n={s.total}</div>
             {s.latency_ms ? <div className="text-[10px] text-gray-600 uppercase tracking-widest">avg {s.latency_ms}ms</div> : null}
           </div>
         ))}
@@ -184,6 +194,9 @@ export default function TtsResults() {
           </div>
         )}
       </section>
+
+      {/* Win Rate by Tag matrix */}
+      <TagWinRateMatrix byTag={(stats as any)?.by_tag || []} />
 
       {/* Top Evaluators (tts voters) */}
       <div>

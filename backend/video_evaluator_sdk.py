@@ -34,9 +34,9 @@ from google.genai import types
 # ---------------------------------------------------------------------------
 # Module-level config (env-overridable)
 # ---------------------------------------------------------------------------
-EVAL_PROJECT = os.getenv("EVAL_PROJECT", "cloud-llm-preview1")
+EVAL_PROJECT = os.getenv("EVAL_PROJECT", "vital-octagon-19612")
 EVAL_LOCATION = os.getenv("EVAL_LOCATION", "global")
-EVAL_MODEL = os.getenv("EVAL_MODEL", "gemini-3.5-flash")
+EVAL_MODEL = os.getenv("EVAL_MODEL", "gemini-3.1-pro-preview")
 
 
 _eval_client = None

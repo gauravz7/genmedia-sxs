@@ -409,9 +409,11 @@ async def image_stats(ldap: Optional[str] = Query(None), tag: Optional[str] = Qu
     if tag_l:
         votes = [v for v in votes if v.get("job_id") in jobs]
 
-    def _avg_latency():
+    def _avg_latency(mode: Optional[str] = None):
         lat: Dict[str, dict] = {}
         for job in jobs.values():
+            if mode and (job.get("mode") or "t2i") != mode:
+                continue
             for res in (job.get("results") or {}).values():
                 if isinstance(res, dict) and res.get("status") == "success":
                     eng = res.get("engine")
@@ -447,10 +449,10 @@ async def image_stats(ldap: Optional[str] = Query(None), tag: Optional[str] = Qu
                 counts[k] = counts.get(k, 0) + 1
         return {k: round(sums[k] / counts[k], 2) for k in sums if counts.get(k)}
 
-    def _compute(v_list):
+    def _compute(v_list, mode: Optional[str] = None):
         skus: Dict[str, dict] = {}
         matchups: Dict[str, dict] = {}
-        latency = _avg_latency()
+        latency = _avg_latency(mode)
 
         for vote in v_list:
             wm, lm = vote.get("winner_model"), vote.get("loser_model")
@@ -505,9 +507,54 @@ async def image_stats(ldap: Optional[str] = Query(None), tag: Optional[str] = Qu
             "matchups": matchup_out,
         }
 
-    result = {"global": _compute(votes)}
+    def _mode_of(vote):
+        return (jobs.get(vote.get("job_id")) or {}).get("mode") or "t2i"
+
+    def _tags_of(vote):
+        return [str(c) for c in (jobs.get(vote.get("job_id")) or {}).get("categories") or []]
+
+    def _by_tag(v_list):
+        """Per-tag → per-model win rates, so strengths/weaknesses by category are
+        visible in one matrix. A vote counts toward every tag on its job."""
+        tags: Dict[str, dict] = {}
+        for vote in v_list:
+            wm, lm = vote.get("winner_model"), vote.get("loser_model")
+            for tag in _tags_of(vote):
+                t = tags.setdefault(tag, {"votes": 0, "by_model": {}})
+                t["votes"] += 1
+                for mid in (wm, lm):
+                    if mid:
+                        t["by_model"].setdefault(mid, {"wins": 0, "total": 0})
+                if wm:
+                    t["by_model"][wm]["wins"] += 1
+                    t["by_model"][wm]["total"] += 1
+                if lm:
+                    t["by_model"][lm]["total"] += 1
+        out = []
+        for tag, data in tags.items():
+            models = [
+                {"model_id": mid, "wins": md["wins"], "total": md["total"],
+                 "win_rate": round((md["wins"] / md["total"]) * 100, 1) if md["total"] else 0.0}
+                for mid, md in data["by_model"].items()
+            ]
+            models.sort(key=lambda x: x["win_rate"], reverse=True)
+            out.append({"tag": tag, "votes": data["votes"], "models": models})
+        out.sort(key=lambda x: x["votes"], reverse=True)
+        return out
+
+    def _bundle(v_list):
+        # Overall stats (all modes) plus per-mode (t2i / i2i) and per-tag breakdowns.
+        out = _compute(v_list)
+        out["by_mode"] = {
+            "t2i": _compute([v for v in v_list if _mode_of(v) == "t2i"], mode="t2i"),
+            "i2i": _compute([v for v in v_list if _mode_of(v) == "i2i"], mode="i2i"),
+        }
+        out["by_tag"] = _by_tag(v_list)
+        return out
+
+    result = {"global": _bundle(votes)}
     if ldap:
-        result["user"] = _compute([v for v in votes if v.get("ldap", "anonymous") == ldap])
+        result["user"] = _bundle([v for v in votes if v.get("ldap", "anonymous") == ldap])
     return result
 
 

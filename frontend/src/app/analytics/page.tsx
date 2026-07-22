@@ -8,6 +8,7 @@ import { API_BASE_URL } from '@/lib/api';
 import Nav from '@/components/Nav';
 import ImageResults from '@/components/ImageResults';
 import TtsResults from '@/components/TtsResults';
+import TagWinRateMatrix from '@/components/TagWinRateMatrix';
 
 const DIMENSIONS = [
   { id: 'prompt_adherence', label: 'Prompt Adherence', color: 'indigo' },
@@ -28,6 +29,8 @@ export default function Analytics() {
   const [history, setHistory] = useState<any[]>([]);
   const [globalLeaderboard, setGlobalLeaderboard] = useState<any[]>([]);
   const [latency, setLatency] = useState<any[]>([]);
+  const [winmap, setWinmap] = useState<any>(null);
+  const [agreement, setAgreement] = useState<any>(null);
   const [modTab, setModTab] = useState<"video" | "image" | "tts">("video");
   // 10-vote access gate (counts votes across video + image + tts).
   const [gate, setGate] = useState<{ checked: boolean; unlocked: boolean; count: number; required: number }>({ checked: false, unlocked: false, count: 0, required: 10 });
@@ -66,7 +69,9 @@ export default function Analytics() {
 
   useEffect(() => {
     fetchStats(selectedTag);
-    fetch(`${API_BASE_URL}/api/tags`)
+    // Video picker tags must come from the SxS job collection the stats use
+    // (not the legacy production /api/tags), so filter options match the data.
+    fetch(`${API_BASE_URL}/api/sxs/tags`)
       .then(res => res.json())
       .then(data => { if (data?.status === "success") setAvailableTags(data.tags); })
       .catch(() => {});
@@ -77,6 +82,14 @@ export default function Analytics() {
     fetch(`${API_BASE_URL}/api/analytics/latency`)
       .then(res => res.json())
       .then(data => { if (Array.isArray(data?.rows)) setLatency(data.rows); })
+      .catch(() => {});
+    fetch(`${API_BASE_URL}/api/benchmark/winmap`)
+      .then(res => res.json())
+      .then(data => { if (data?.overall) setWinmap(data); })
+      .catch(() => {});
+    fetch(`${API_BASE_URL}/api/analytics/agreement`)
+      .then(res => res.json())
+      .then(data => { if (data?.overall) setAgreement(data); })
       .catch(() => {});
     try {
       const savedHistory = localStorage.getItem('project_pulse_history');
@@ -364,6 +377,11 @@ export default function Analytics() {
           </div>
         </div>
 
+        {/* Win Rate by Tag matrix (models collapsed to families: Omni, Seedance…) */}
+        <div className="pt-8 border-t border-white/5 mt-8">
+          <TagWinRateMatrix byTag={(currentStats as any).by_tag || []} groupBy={familyOf} />
+        </div>
+
         {/* Spider Chart — one uniform Omni vs Seedance across all modes */}
         <div className="pt-8 border-t border-white/5 mt-8">
           <h3 className="text-xl font-light text-gray-300 mb-6">Dimension Analytics</h3>
@@ -437,8 +455,81 @@ export default function Analytics() {
         {modTab === "image" && (<><ImageResults /><LatencyPanel rows={latency} only={["t2i", "i2i"]} /></>)}
 
         {modTab === "tts" && (<><TtsResults /><LatencyPanel rows={latency} only={["tts"]} /></>)}
+
+        {/* Cross-modality: human×AI agreement + where Google adds value (page bottom) */}
+        <WhereGoogleWins winmap={winmap} agreement={agreement} />
       </div>
     </div>
+  );
+}
+
+// Friendly labels for language codes; bare modality codes are dropped (they read
+// as cryptic "hi / tts" segments).
+const LANG_LABEL: Record<string, string> = {
+  en: "English", hi: "Hindi", "hi-en": "Hinglish", "hi-bn": "Hindi-Bengali",
+  zh: "Chinese", es: "Spanish", ur: "Urdu", ja: "Japanese", ko: "Korean",
+  fr: "French", de: "German", ar: "Arabic", pt: "Portuguese",
+};
+const MODALITY_CODES = new Set(["t2i", "i2i", "tts", "t2v", "i2v", "r2v"]);
+
+function WhereGoogleWins({ winmap, agreement }: { winmap: any; agreement: any }) {
+  if (!agreement && !winmap) return null;
+  const ag = agreement?.overall;
+
+  // Readable "value areas": leads only, language codes humanized, bare modality
+  // codes dropped, deduped by label.
+  const seen = new Set<string>();
+  const valueAreas = (winmap?.leads || [])
+    .map((s: any) => {
+      const seg = String(s.segment);
+      if (MODALITY_CODES.has(seg)) return null;
+      // strip leading emoji/symbols from legacy video tags ("👤 People" -> "People")
+      const clean = seg.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+      const label = LANG_LABEL[seg] ? `${LANG_LABEL[seg]} (language)` : clean;
+      if (!label) return null;
+      return { label, win_rate: s.win_rate, n: s.n };
+    })
+    .filter((x: any) => x && !seen.has(x.label) && seen.add(x.label))
+    .slice(0, 6);
+
+  return (
+    <section className="bg-[#0b0e14] border border-white/10 rounded-[32px] p-8 mt-2">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+        {/* Human x AI agreement — the trust metric */}
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Human × AI judge agreement</div>
+          <div className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-br from-indigo-300 to-emerald-300">
+            {ag && ag.pct != null ? `${ag.pct}%` : "—"}
+          </div>
+          <div className="text-[11px] text-gray-500 mt-1">how often the AI judge picks the same winner as human voters {ag ? `· n=${ag.n}` : ""}</div>
+          {agreement && (
+            <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-gray-500">
+              {["image", "video", "tts"].map((m) => agreement[m] && agreement[m].pct != null ? (
+                <span key={m}>{m}: <span className="text-gray-300 font-mono">{agreement[m].pct}% (n={agreement[m].n})</span></span>
+              ) : null)}
+            </div>
+          )}
+        </div>
+
+        {/* Where Google adds most value — readable, no CI clutter */}
+        <div className="md:col-span-2">
+          <div className="text-[10px] font-black uppercase tracking-widest text-emerald-400/80 mb-3">Where Google adds most value</div>
+          {valueAreas.length ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {valueAreas.map((a: any) => (
+                <div key={a.label} className="flex items-center justify-between gap-3 bg-[#06080b] border border-emerald-500/15 rounded-xl px-4 py-2.5">
+                  <span className="text-sm text-gray-200 truncate">{a.label}</span>
+                  <span className="text-xs font-mono text-emerald-300 whitespace-nowrap">{a.win_rate}% <span className="text-gray-600">n={a.n}</span></span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-gray-600 text-xs italic">Not enough votes yet to call out strong areas (need n≥10 per area).</div>
+          )}
+          <div className="mt-2 text-[10px] text-gray-600">Areas where Google models win the AI-judged blind comparison; thin samples (n&lt;10) hidden.</div>
+        </div>
+      </div>
+    </section>
   );
 }
 

@@ -25,7 +25,7 @@ import random
 import time
 import urllib.parse
 from collections import Counter
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import (
@@ -334,7 +334,7 @@ async def tts_languages():
 class TtsVoteRequest(BaseModel):
     job_id: str
     winner_side: str  # "A" or "B" (or "tie")
-    scores: Dict[str, int] = {}  # may be {"A": {...}, "B": {...}} or flat winner scores
+    scores: Dict[str, Any] = {}  # nested {"A": {...}, "B": {...}} (per-side) or flat winner scores
     justification: str = ""
     ldap: str = "anonymous"
 
@@ -467,9 +467,45 @@ async def tts_stats(ldap: Optional[str] = Query(None), language: Optional[str] =
             "skus": sorted(leaderboard, key=lambda x: x["win_rate"], reverse=True),
         }
 
-    result = {"global": _compute(votes)}
+    def _tags_of(vote):
+        return [str(c) for c in (jobs.get(vote.get("job_id")) or {}).get("categories") or []]
+
+    def _by_tag(v_list):
+        """Per-tag → per-model win rates for the TTS engines."""
+        tags: Dict[str, dict] = {}
+        for vote in v_list:
+            wm, lm = vote.get("winner_model"), vote.get("loser_model")
+            for tag in _tags_of(vote):
+                t = tags.setdefault(tag, {"votes": 0, "by_model": {}})
+                t["votes"] += 1
+                for mid in (wm, lm):
+                    if mid:
+                        t["by_model"].setdefault(mid, {"wins": 0, "total": 0})
+                if wm:
+                    t["by_model"][wm]["wins"] += 1
+                    t["by_model"][wm]["total"] += 1
+                if lm:
+                    t["by_model"][lm]["total"] += 1
+        out = []
+        for tag, data in tags.items():
+            models = [
+                {"model_id": mid, "wins": md["wins"], "total": md["total"],
+                 "win_rate": round((md["wins"] / md["total"]) * 100, 1) if md["total"] else 0.0}
+                for mid, md in data["by_model"].items()
+            ]
+            models.sort(key=lambda x: x["win_rate"], reverse=True)
+            out.append({"tag": tag, "votes": data["votes"], "models": models})
+        out.sort(key=lambda x: x["votes"], reverse=True)
+        return out
+
+    def _bundle(v_list):
+        out = _compute(v_list)
+        out["by_tag"] = _by_tag(v_list)
+        return out
+
+    result = {"global": _bundle(votes)}
     if ldap:
-        result["user"] = _compute([v for v in votes if v.get("ldap", "anonymous") == ldap])
+        result["user"] = _bundle([v for v in votes if v.get("ldap", "anonymous") == ldap])
     return result
 
 

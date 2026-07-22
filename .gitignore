@@ -81,3 +81,20 @@ keys.json
 *_sa.json
 *-sa.json
 *.credentials.json
+
+# --- Never commit: evaluation prompt datasets & prompt-embedding builders ---
+*cases*.json
+*_synthetic_cases.json
+build_tts_synthetic.py
+build_*_cases.py
+*_jobs_backup*.json
+*_backup_*.json
+
+# --- Never commit: generated media / screenshots / decks ---
+docs/assets/
+docs/deck_assets/
+docs/*.pdf
+*.mp4
+*.mp3
+*.wav
+*.mov
