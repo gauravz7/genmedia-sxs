@@ -215,12 +215,58 @@ async def _gen_eleven(case: dict) -> dict:
     )
 
 
+# Engine dispatch. The two shipped engines are wired statically so this module
+# stands alone; any other engine is resolved through the model registry, so
+# adding a TTS model is a registry entry plus one generator here.
+_GEN_BY_PROVIDER = {
+    "gemini_tts": _gen_gemini,
+    "elevenlabs": _gen_eleven,
+}
+_PROVIDER_BY_ENGINE = {
+    ENGINE_GEMINI: "gemini_tts",
+    ENGINE_ELEVEN: "elevenlabs",
+}
+
+
+def _provider_for_engine(engine: str) -> Optional[str]:
+    provider = _PROVIDER_BY_ENGINE.get(engine)
+    if provider:
+        return provider
+    try:
+        import main  # lazy: main imports this module's callers at boot
+        spec = main.registry.models.get(engine)
+        return spec.provider if spec else None
+    except Exception:
+        return None
+
+
+async def _gen_for_engine(engine: str, case: dict) -> dict:
+    """Generate one side by engine id. Never raises — an unknown engine comes
+    back as an error result so the other side still lands."""
+    gen = _GEN_BY_PROVIDER.get(_provider_for_engine(engine) or "")
+    if gen is None:
+        return {"model": ENGINE_LABELS.get(engine, engine), "status": "error",
+                "error": f"No TTS generator for engine '{engine}'"}
+    return await gen(case)
+
+
 # --- Firestore job lifecycle -----------------------------------------------
 
-def create_tts_job(case: dict, batch_id: Optional[str] = None) -> str:
-    """Create the Firestore tts_jobs doc with a randomized blind A/B side_map.
+def build_tts_job_doc(
+    case: dict,
+    engines: List[str],
+    batch_id: Optional[str] = None,
+    results: Optional[Dict[str, dict]] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> dict:
+    """Build (but don't write) a tts_jobs doc for a given pair of engines.
 
-    Returns the job_id.
+    Which engine is the "A" side is randomized so blind human voting is
+    unbiased; `side_map` records the truth. Mutates `case["language"]` with the
+    autodetected code so both engines get the hint during generation.
+
+    `results` overrides the default "generating" placeholders — the ingest path
+    passes ready-made success results.
     """
     case_id = case.get("id", "case")
     job_id = f"tts_{_slug(case_id)}_{int(time.time()*1000)}_{random.randint(100,999)}"
@@ -241,10 +287,15 @@ def create_tts_job(case: dict, batch_id: Optional[str] = None) -> str:
     provided_cats = _categories(case)
     categories = provided_cats if provided_cats else _voice_categories(case.get("text", ""), lang)
 
-    # Randomize which engine is the "A" side for blind voting.
-    engines = [ENGINE_GEMINI, ENGINE_ELEVEN]
-    random.shuffle(engines)
-    side_map = {"A": engines[0], "B": engines[1]}
+    shuffled = list(engines)
+    random.shuffle(shuffled)
+    side_map = {"A": shuffled[0], "B": shuffled[1]}
+
+    if results is None:
+        results = {
+            "A": {"status": "generating", "engine": side_map["A"]},
+            "B": {"status": "generating", "engine": side_map["B"]},
+        }
 
     doc = {
         "id": job_id,
@@ -265,21 +316,44 @@ def create_tts_job(case: dict, batch_id: Optional[str] = None) -> str:
         "language_autodetected": autodetected,
         "timestamp": time.time(),
         "side_map": side_map,
-        "results": {
-            "A": {"status": "generating", "engine": side_map["A"]},
-            "B": {"status": "generating", "engine": side_map["B"]},
-        },
+        "results": results,
         "auto_eval_status": "pending",
     }
+    if extra:
+        doc.update(extra)
+    return doc
 
+
+def create_tts_job_with_engines(
+    case: dict, engines: List[str], batch_id: Optional[str] = None,
+    run_eval: bool = True,
+) -> str:
+    """Create a TTS job for an explicitly named pair of engines (used by
+    `/api/tts/prompts`). `process_tts_job` reads `side_map`, so these run
+    exactly like the default Gemini-vs-ElevenLabs pairing."""
+    if len(engines) != 2:
+        raise ValueError(f"TTS duels are two-sided: got {len(engines)} engine(s)")
+    doc = build_tts_job_doc(
+        case, engines, batch_id=batch_id,
+        extra=None if run_eval else {"auto_eval_status": "skipped"},
+    )
     db = _get_firestore_client()
-    db.collection(TTS_COLLECTION).document(job_id).set(doc)
-    return job_id
+    db.collection(TTS_COLLECTION).document(doc["id"]).set(doc)
+    return doc["id"]
+
+
+def create_tts_job(case: dict, batch_id: Optional[str] = None) -> str:
+    """Create the Firestore tts_jobs doc for the default Gemini-vs-ElevenLabs
+    pairing, with a randomized blind A/B side_map. Returns the job_id."""
+    doc = build_tts_job_doc(case, [ENGINE_GEMINI, ENGINE_ELEVEN], batch_id=batch_id)
+    db = _get_firestore_client()
+    db.collection(TTS_COLLECTION).document(doc["id"]).set(doc)
+    return doc["id"]
 
 
 async def process_tts_job(job_id: str, case: dict) -> str:
-    """Generate on both engines in parallel, store under the job's blind A/B
-    labels per its side_map, then run the AI audio judge. Returns job_id."""
+    """Generate on both of the job's engines in parallel, store under its blind
+    A/B labels per side_map, then run the AI audio judge. Returns job_id."""
     db = _get_firestore_client()
     snap = db.collection(TTS_COLLECTION).document(job_id).get()
     if not snap.exists:
@@ -287,26 +361,26 @@ async def process_tts_job(job_id: str, case: dict) -> str:
     job = snap.to_dict() or {}
     side_map = job.get("side_map") or {"A": ENGINE_GEMINI, "B": ENGINE_ELEVEN}
 
-    gemini_res, eleven_res = await asyncio.gather(
-        _gen_gemini(case),
-        _gen_eleven(case),
+    labels = ("A", "B")
+    results = await asyncio.gather(
+        *[_gen_for_engine(side_map[label], case) for label in labels],
         return_exceptions=True,
     )
 
-    if isinstance(gemini_res, Exception):
-        gemini_res = {"model": GEMINI_LABEL, "status": "error", "error": str(gemini_res)}
-    if isinstance(eleven_res, Exception):
-        eleven_res = {"model": ELEVEN_LABEL, "status": "error", "error": str(eleven_res)}
-
-    by_engine = {ENGINE_GEMINI: gemini_res, ENGINE_ELEVEN: eleven_res}
-
     update: Dict[str, Any] = {}
-    for label in ("A", "B"):
+    for label, res in zip(labels, results):
         engine = side_map[label]
-        res = dict(by_engine[engine])
+        if isinstance(res, Exception):
+            res = {"model": ENGINE_LABELS.get(engine, engine), "status": "error",
+                   "error": str(res)}
+        res = dict(res)
         res["engine"] = engine
         update[f"results.{label}"] = res
     db.collection(TTS_COLLECTION).document(job_id).update(update)
+
+    # `run_eval: false` on an intake request writes auto_eval_status "skipped".
+    if job.get("auto_eval_status") == "skipped":
+        return job_id
 
     try:
         from tts_evaluator import run_tts_evaluation
@@ -359,8 +433,7 @@ async def retry_tts_job(job_id: str) -> dict:
         if isinstance(res, dict) and res.get("status") == "success":
             continue
         engine = side_map.get(label, ENGINE_GEMINI)
-        newr = await (_gen_gemini(case) if engine == ENGINE_GEMINI else _gen_eleven(case))
-        newr = dict(newr)
+        newr = dict(await _gen_for_engine(engine, case))
         newr["engine"] = engine
         db.collection(TTS_COLLECTION).document(job_id).update({f"results.{label}": newr})
         retried.append({"side": label, "engine": engine, "status": newr.get("status"), "error": newr.get("error", "")})

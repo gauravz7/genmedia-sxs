@@ -41,10 +41,35 @@ checked-in copy is never served.
 - Superseded deploy scripts (current one is `deploy_v2.sh`):
   `deploy_cloudrun.sh`, `deploy_unified.sh`, `deploy_sxs.sh`
 
+### v3/
+The abandoned execution-centric rewrite — its own FastAPI app, pytest suite and
+Next.js frontend. The refactor was rejected; v2 is the version being developed.
+Kept for reference only; nothing in it is imported by v2. (`node_modules/` and
+`.next/` inside it are gitignored build caches — delete them freely.)
+
+### docs/  (2 files)
+`REFACTOR_PLAN.md` and `TECHNICAL_PRD.md` — both describe the rejected v3
+direction. Background reading, not a roadmap.
+
+### backend/scripts/  — second wave (6 files)
+Customer- or batch-specific one-offs, superseded or already run:
+- `load_v2v_bench.py` — generalized by the intake API (`POST /api/sxs/outputs`)
+- `delete_mihoyo_jobs.py`, `run_anime_batch.py`, `retag_and_eval_v2v.py` — single-batch jobs
+- `build_gaming_concept_cases.py`, `build_tts_synthetic.py` — dataset builders for batches already loaded
+
+### backend/data/  — second wave
+`mihoyo_jobs_backup_1782975062.json`, a stale pre-migration Firestore dump.
+
 ## Kept in place (still required)
-Runtime: `main.py`, `sxs_pipeline.py`, `image_pipeline.py`, `tts_pipeline.py`,
-`image_routes.py`, `tts_routes.py`, `video_evaluator_sdk.py`, `image_evaluator.py`,
-`tts_evaluator.py`, `providers/`, `util/`, `models.json`, `requirements.txt`,
-`Dockerfile`, `Procfile`, `.env`.
-Current tooling: `resume_batch.py`, `retag_video.py`, `deploy_v2.sh`, `restart_local.sh`.
-Format references: `*.sample.json`. Docs: `README.md`, `EVAL_GUIDE.md`, `docs/`.
+Runtime, after `main.py` was decomposed (see its module map): `main.py` (app
+assembly only), `config.py`, `registry.py`, `store.py`, `auth.py`, `tagging.py`,
+`generation.py`, the routers (`models_routes.py`, `admin_routes.py`,
+`video_routes.py`, `image_routes.py`, `tts_routes.py`, `intake_routes.py`,
+`analytics_routes.py`, `media_routes.py`, `slides_routes.py`,
+`legacy_routes.py`), the pipelines and evaluators, `intake.py`,
+`model_resolver.py`, `providers/`, `util/`, `tests/`, `models_builtin.json`,
+`models.json`, `requirements.txt`, `Dockerfile`, `Procfile`, `.env`.
+Current tooling: `resume_batch.py`, `reeval_all.py`, `retag_{image,tts,video}.py`,
+`deploy_v2.sh`, `restart_local.sh`.
+Format references: `*.sample.json`, the `*_cases.json` datasets (gitignored —
+they embed customer names). Docs: `README.md`, `EVAL_GUIDE.md`, `docs/`.

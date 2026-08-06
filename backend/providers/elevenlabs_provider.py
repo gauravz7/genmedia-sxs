@@ -1,51 +1,53 @@
-"""ElevenLabs TTS provider (REST via `requests`).
+"""ElevenLabs TTS provider — served through FAL.
 
-Primary model is **Eleven v3** (`eleven_v3`) — expressive, supports inline audio
-tags ([excited], [whispers], …) and 70+ languages. Multi-speaker cases use the
-**Text to Dialogue API** (`/v1/text-to-dialogue`, v3-only). If a v3 call fails
-(e.g. the key isn't enabled for v3), we automatically fall back to
-`eleven_multilingual_v2` so generation never hard-breaks.
+ElevenLabs is not a Google model, so per the platform rule (Google → Vertex AI,
+everything else → FAL) it is consumed via FAL rather than ElevenLabs' own REST
+API. Two FAL endpoints back this module:
 
-Per-language native voices: when `ELEVENLABS_USE_NATIVE=1` and the case language
-maps to a known native voice (LANG_VOICE), that voice is used; otherwise a
-default account voice is used (multilingual models speak any language with any
-voice). Native library voices must first be added to the account — see
-`setup_elevenlabs_voices.py`.
+  - single speaker → ``fal-ai/elevenlabs/tts/eleven-v3``
+  - multi speaker  → ``fal-ai/elevenlabs/text-to-dialogue/eleven-v3``
+
+Both run **Eleven v3** — expressive, inline audio tags ([excited], [whispers], …)
+and 70+ languages. There is no v2 fallback: FAL exposes each model as its own
+slug, and 429/5xx are already retried with backoff by ``util.ratelimit.limited``.
+
+Voices are passed by ElevenLabs voice_id (FAL also accepts a voice *name*).
+Going through FAL removes the old "must be added to the workspace first"
+constraint, so the per-language native voices in LANG_VOICE now apply whenever
+``ELEVENLABS_USE_NATIVE`` is on and the case language maps to one.
+
+Auth is FAL's (``FAL_KEY``); ``ELEVENLABS_API_KEY`` is no longer used.
 
 Docs:
-  - v3 model / tags:  https://elevenlabs.io/docs/overview/models
-  - Text to Dialogue: https://elevenlabs.io/docs/api-reference/text-to-dialogue/convert
-  - v3 prompting:     https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices
+  - FAL Eleven v3:      https://fal.ai/models/fal-ai/elevenlabs/tts/eleven-v3
+  - FAL Text-to-Dialogue: https://fal.ai/models/fal-ai/elevenlabs/text-to-dialogue/eleven-v3
+  - v3 prompting:       https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices
 
-ELEVENLABS_API_KEY is read from env (loaded via python-dotenv). No module-level
-network calls.
+No module-level network calls.
 """
 
-import asyncio
 import os
 import re
 import time
 from typing import Any, Dict, List, Optional
 
-import requests
+import fal_client
 from dotenv import load_dotenv
 
-from util.gcs_utils import upload_from_bytes
-from util.ratelimit import retry as _retry, gate
+from util.gcs_utils import upload_from_url
+from util.ratelimit import limited
 
 load_dotenv()
 
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
-PRIMARY_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_v3")
-FALLBACK_MODEL = os.getenv("ELEVENLABS_FALLBACK_MODEL", "eleven_multilingual_v2")
 USE_NATIVE = os.getenv("ELEVENLABS_USE_NATIVE", "1") not in ("0", "false", "False", "")
 MODEL_LABEL = "ElevenLabs (v3)"
 
-TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech"
-DIALOGUE_URL = "https://api.elevenlabs.io/v1/text-to-dialogue"
-_OUTPUT_FMT = "mp3_44100_128"
+FAL_TTS_SLUG = os.getenv("ELEVENLABS_FAL_TTS_SLUG", "fal-ai/elevenlabs/tts/eleven-v3")
+FAL_DIALOGUE_SLUG = os.getenv(
+    "ELEVENLABS_FAL_DIALOGUE_SLUG", "fal-ai/elevenlabs/text-to-dialogue/eleven-v3"
+)
 
-# --- Account voices (verified present on the workspace) ---------------------
+# --- Curated voices ---------------------------------------------------------
 VOICE_MAP: Dict[str, str] = {
     "George": "JBFqnCBsd6RMkjVDRZzb",   # warm storyteller (default)
     "Sarah": "EXAVITQu4vr4xnSDxMaL",
@@ -66,14 +68,12 @@ DEFAULT_VOICE_ID = VOICE_MAP[DEFAULT_VOICE_NAME]
 # Round-robin voices for multi-speaker dialogue turns.
 DIALOGUE_VOICES = [VOICE_MAP["George"], VOICE_MAP["Sarah"], VOICE_MAP["Charlie"], VOICE_MAP["Laura"]]
 
-# --- Popular native voices per language (ElevenLabs voice library) ----------
-# NOTE: library voices must be ADDED to the account before use (run
-# setup_elevenlabs_voices.py). Override this map with the confirmed account
-# voice_ids that script prints. Base language code (before any '-') is matched.
+# --- Native voices per language (ElevenLabs voice library) ------------------
+# Base language code (before any '-') is matched.
 LANG_VOICE: Dict[str, str] = {
     "hi": "dSEhEXLzhnZEytnJ2rRy",   # Hindi  — Anika
-    "ta": "",                        # Tamil  — set via setup script
-    "te": "",                        # Telugu — set via setup script
+    "ta": "",                        # Tamil  — not yet chosen
+    "te": "",                        # Telugu — not yet chosen
     "ja": "6l0ObIy4mHn0XfeKlCgW",   # Japanese — Maya
     "ko": "i4rvH83fgM9aBqIBZ5zH",   # Korean — Jihu
     "zh": "hFamrilbAE6WDMtWgKvu",   # Chinese (Mandarin) — Pangge
@@ -93,53 +93,20 @@ def _standard_result(model: str, **kwargs) -> dict:
     return base
 
 
-_account_voice_ids_cache = None
-
-
-def _account_voice_ids() -> set:
-    """Voice IDs available on the workspace (cached for the process lifetime).
-    Returns an empty set if the listing call fails — callers treat that as
-    'unknown', so we never block generation on a transient API hiccup."""
-    global _account_voice_ids_cache
-    if _account_voice_ids_cache is None:
-        try:
-            r = requests.get(
-                "https://api.elevenlabs.io/v1/voices",
-                headers={"xi-api-key": ELEVENLABS_API_KEY},
-                timeout=15,
-            )
-            r.raise_for_status()
-            _account_voice_ids_cache = {v["voice_id"] for v in r.json().get("voices", [])}
-        except Exception as e:  # pragma: no cover
-            print(f"[elevenlabs] could not list account voices: {e}")
-            _account_voice_ids_cache = set()
-    return _account_voice_ids_cache
-
-
-def _on_account(vid: str) -> bool:
-    """True if the voice is on the workspace (or if we couldn't list voices)."""
-    ids = _account_voice_ids()
-    return (not ids) or (vid in ids)
-
-
 def _resolve_voice(voice: Optional[str], language: Optional[str]) -> str:
-    """Explicit voice wins; else a native voice for the language (if enabled,
-    known, AND provisioned on the account); else the default account voice.
-
-    A native voice_id that is NOT on the workspace would 400; instead we fall
-    back to the default voice. Eleven v3 is multilingual (70+ languages), so the
+    """Explicit voice wins; else a native voice for the language (when enabled
+    and known); else the default voice. Eleven v3 is multilingual, so the
     default voice still speaks the target language — just without a native
     accent — rather than the case erroring out."""
     if voice:
         if len(voice) >= 20 and " " not in voice:
-            if _on_account(voice):
-                return voice  # already a valid on-account voice_id
-        elif voice in VOICE_MAP:
-            return VOICE_MAP[voice]  # curated default voices (always on account)
+            return voice           # already a voice_id
+        if voice in VOICE_MAP:
+            return VOICE_MAP[voice]
     if USE_NATIVE and language:
         base = str(language).strip().lower().split("-")[0]
         vid = LANG_VOICE.get(base)
-        if vid and _on_account(vid):
+        if vid:
             return vid
     return DEFAULT_VOICE_ID
 
@@ -148,37 +115,36 @@ def _strip_tags(text: str) -> str:
     return re.sub(r"[ \t]+", " ", _TAG_RE.sub("", text or "")).strip()
 
 
-def _voice_settings(model: str, style_prompt: Optional[str]) -> dict:
-    """Model-aware settings. Eleven v3 only accepts stability in {0.0, 0.5, 1.0}
-    (Creative / Natural / Robust); v2 accepts continuous values + style."""
-    blob = (style_prompt or "").lower()
-    expressive = any(w in blob for w in ("expressive", "dramatic", "excited", "energetic", "emotional", "lively"))
-    calm = any(w in blob for w in ("calm", "neutral", "monotone", "documentary", "serious"))
-    # Reserve the fully-flat Robust (1.0) tier ONLY for true meditation; every
-    # other calm read caps at Natural (0.5), and expressive reads use Creative (0.0).
-    meditation = any(w in blob for w in ("meditation", "serene", "soothing", "guided relaxation"))
-    if str(model).startswith("eleven_v3"):
-        stability = 1.0 if meditation else (0.0 if expressive else 0.5)
-        return {"stability": stability, "use_speaker_boost": True}
-    stability = 0.3 if expressive else (0.7 if calm else 0.5)
-    return {
-        "stability": stability,
-        "similarity_boost": 0.75,
-        "style": 0.5 if expressive else 0.0,
-        "use_speaker_boost": True,
-    }
+_EXPRESSIVE_WORDS = (
+    "expressive", "dramatic", "excited", "energetic", "emotional", "lively",
+    "upbeat", "cheerful", "enthusiastic", "playful", "animated", "angry",
+    "shouting", "laughs", "whispers",
+)
+_MEDITATION_WORDS = ("meditation", "serene", "soothing", "guided relaxation")
 
 
-def _headers() -> dict:
-    if not ELEVENLABS_API_KEY:
-        raise RuntimeError("ELEVENLABS_API_KEY not set in environment")
-    return {"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json", "Accept": "audio/mpeg"}
+def _stability(style_prompt: Optional[str], text: Optional[str] = None) -> float:
+    """Eleven v3 accepts stability in {0.0, 0.5, 1.0} — Creative / Natural /
+    Robust. Reserve the fully-flat Robust tier for true meditation; every other
+    calm read caps at Natural, and expressive reads use Creative.
+
+    The script's own inline audio tags count as intent: v3 only acts strongly on
+    `[excited]` / `[whispers]` at the Creative tier, so a case tagged in the text
+    but neutral in its style notes would otherwise be read flat. Only the tags
+    are scanned, not the whole script — the word "angry" in a line of dialogue
+    is content, not direction.
+    """
+    tags = " ".join(_TAG_RE.findall(text or "")).lower()
+    blob = f"{(style_prompt or '').lower()} {tags}"
+    if any(w in blob for w in _MEDITATION_WORDS):
+        return 1.0
+    return 0.0 if any(w in blob for w in _EXPRESSIVE_WORDS) else 0.5
 
 
 def _parse_turns(text: str, speakers: Optional[List[dict]]) -> List[dict]:
-    """Parse a multi-speaker script ("Name: line") into ElevenLabs dialogue
-    inputs [{text, voice_id}], assigning each distinct speaker an account voice
-    by order. Audio tags are kept (v3 understands them)."""
+    """Parse a multi-speaker script ("Name: line") into text-to-dialogue inputs
+    [{text, voice}], assigning each distinct speaker a voice by order. Audio tags
+    are kept (v3 understands them)."""
     lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     turns: List[dict] = []
     order: Dict[str, str] = {}
@@ -192,54 +158,22 @@ def _parse_turns(text: str, speakers: Optional[List[dict]]) -> List[dict]:
         name, utt = m.group(1).strip(), m.group(2).strip()
         if name not in order:
             order[name] = DIALOGUE_VOICES[len(order) % len(DIALOGUE_VOICES)]
-        turns.append({"text": utt, "voice_id": order[name]})
+        turns.append({"text": utt, "voice": order[name]})
     return turns
 
 
-def _post_tts(voice_id: str, text: str, model: str, style_prompt: Optional[str]) -> bytes:
-    resp = requests.post(
-        f"{TTS_URL}/{voice_id}?output_format={_OUTPUT_FMT}",
-        headers=_headers(),
-        json={"text": text, "model_id": model, "voice_settings": _voice_settings(model, style_prompt)},
-        timeout=180,
-    )
-    if resp.status_code != 200:
-        raise RuntimeError(f"ElevenLabs TTS HTTP {resp.status_code}: {resp.text[:300]}")
-    if not resp.content:
-        raise RuntimeError("ElevenLabs returned empty audio")
-    return resp.content
-
-
-def _post_dialogue(inputs: List[dict], model: str, style_prompt: Optional[str]) -> bytes:
-    resp = requests.post(
-        f"{DIALOGUE_URL}?output_format={_OUTPUT_FMT}",
-        headers=_headers(),
-        json={"model_id": model, "inputs": inputs, "settings": _voice_settings(model, style_prompt)},
-        timeout=240,
-    )
-    if resp.status_code != 200:
-        raise RuntimeError(f"ElevenLabs Dialogue HTTP {resp.status_code}: {resp.text[:300]}")
-    if not resp.content:
-        raise RuntimeError("ElevenLabs returned empty dialogue audio")
-    return resp.content
-
-
-def _synthesize(text: str, voice_id: str, speakers: Optional[List[dict]], style_prompt: Optional[str]) -> tuple:
-    """Try v3 (with audio tags + dialogue for multi-speaker); on failure fall
-    back to multilingual_v2 (tags stripped, single voice). Returns
-    (audio_bytes, model_used)."""
-    turns = _parse_turns(text, speakers) if speakers else []
-    # Primary: Eleven v3 (retried on 429/5xx with backoff)
-    try:
-        if len(turns) >= 2 and PRIMARY_MODEL == "eleven_v3":
-            return _retry(lambda: _post_dialogue(turns, PRIMARY_MODEL, style_prompt)), f"{PRIMARY_MODEL} (dialogue)"
-        return _retry(lambda: _post_tts(voice_id, text, PRIMARY_MODEL, style_prompt)), PRIMARY_MODEL
-    except Exception as primary_err:
-        # Fallback: multilingual_v2 (no tags, single voice convert)
-        try:
-            return _retry(lambda: _post_tts(voice_id, _strip_tags(text), FALLBACK_MODEL, style_prompt)), FALLBACK_MODEL
-        except Exception:
-            raise primary_err
+def _extract_audio_url(result: Any) -> Optional[str]:
+    """Pull the mp3 URL out of a FAL response ({"audio": {"url": ...}})."""
+    if not isinstance(result, dict):
+        return None
+    audio = result.get("audio")
+    if isinstance(audio, dict) and audio.get("url"):
+        return audio["url"]
+    if isinstance(audio, str) and audio:
+        return audio
+    if isinstance(result.get("audio_url"), str):
+        return result["audio_url"]
+    return result.get("url")
 
 
 async def generate_elevenlabs_tts(
@@ -250,16 +184,45 @@ async def generate_elevenlabs_tts(
     language: Optional[str] = None,
     case_id: str = "case",
 ) -> dict:
-    """Generate speech on ElevenLabs (v3 → v2 fallback). Returns the standard
-    result dict: {model, url, gcs_url, latency_ms, status, error, voice, voice_id}."""
+    """Generate speech on ElevenLabs v3 via FAL. Returns the standard result
+    dict: {model, url, gcs_url, latency_ms, status, error, voice, voice_id}."""
     start = time.time()
     voice_id = _resolve_voice(voice, language)
+    stability = _stability(style_prompt, text)
+
+    # Multi-speaker scripts go to text-to-dialogue; a script that doesn't parse
+    # into >= 2 turns falls through to the single-voice endpoint.
+    turns = _parse_turns(text, speakers) if speakers else []
+    if len(turns) >= 2:
+        slug = FAL_DIALOGUE_SLUG
+        arguments: Dict[str, Any] = {
+            "inputs": turns,
+            "stability": stability,
+            "use_speaker_boost": True,
+        }
+        model_used = "eleven_v3 (dialogue)"
+    else:
+        slug = FAL_TTS_SLUG
+        # Note: `language_code` is deliberately not sent — v3 auto-detects, and
+        # the native-voice choice above already carries the language intent.
+        arguments = {
+            "text": text or "",
+            "voice": voice_id,
+            "stability": stability,
+        }
+        model_used = "eleven_v3"
+
     try:
-        async with gate("elevenlabs"):  # cap concurrent ElevenLabs requests
-            mp3, model_used = await asyncio.to_thread(_synthesize, text, voice_id, speakers, style_prompt)
+        result = await limited("fal", lambda: fal_client.subscribe_async(slug, arguments=arguments))
+
+        audio_url = _extract_audio_url(result)
+        if not audio_url:
+            raise RuntimeError(f"ElevenLabs via FAL returned no audio URL: {str(result)[:200]}")
+
         safe_id = "".join(c if c.isalnum() else "-" for c in str(case_id)).strip("-").lower() or "case"
         filename = f"audio/tts_elevenlabs_{safe_id}_{int(time.time()*1000)}.mp3"
-        gcs_url = upload_from_bytes(mp3, filename, content_type="audio/mpeg")
+        gcs_url = upload_from_url(audio_url, filename)
+
         return _standard_result(
             MODEL_LABEL,
             status="success",
@@ -270,7 +233,7 @@ async def generate_elevenlabs_tts(
             voice_id=voice_id,
             model_used=model_used,
             error=None,
-            result={"url": gcs_url},
+            result={"url": gcs_url, "original_url": audio_url},
         )
     except Exception as e:
         return _standard_result(
@@ -278,6 +241,9 @@ async def generate_elevenlabs_tts(
             status="error",
             error=str(e),
             latency_ms=round((time.time() - start) * 1000),
+            voice=voice,
+            voice_id=voice_id,
+            model_used=model_used,
             url=None,
             gcs_url=None,
         )

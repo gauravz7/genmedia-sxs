@@ -208,20 +208,38 @@ async def _gen_side(side: dict, case: dict) -> dict:
 
 # --- Firestore job lifecycle ------------------------------------------------
 
-def create_image_job(case: dict, batch_id: Optional[str] = None) -> str:
-    """Create the Firestore image_jobs doc with a randomized blind A/B side_map.
+def build_image_job_doc(
+    case: dict,
+    left: dict,
+    right: dict,
+    batch_id: Optional[str] = None,
+    matchup_id: Optional[str] = None,
+    matchup_label: Optional[str] = None,
+    results: Optional[Dict[str, dict]] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> dict:
+    """Build (but don't write) an image_jobs doc for a given pair of sides.
 
-    Returns the job_id. The two matchup sides are randomly assigned to labels
-    A/B so blind human voting is unbiased; `side_map` records the truth.
+    The two sides are randomly assigned to labels A/B so blind human voting is
+    unbiased; `side_map` records the truth and `side_specs` the full identity
+    (provider/model/quality) used by generation and retry.
+
+    `results` overrides the default "generating" placeholders — the ingest path
+    passes ready-made success results keyed by engine.
     """
     case_id = case.get("id", "case")
     job_id = f"img_{_slug(case_id)}_{int(time.time()*1000)}_{random.randint(100,999)}"
 
-    matchup = resolve_matchup(case)
-    sides = [matchup["left"], matchup["right"]]
+    sides = [left, right]
     random.shuffle(sides)
     side_a, side_b = sides[0], sides[1]
     side_map = {"A": side_a["engine"], "B": side_b["engine"]}
+
+    if results is None:
+        results = {
+            "A": {"status": "generating", "engine": side_a["engine"]},
+            "B": {"status": "generating", "engine": side_b["engine"]},
+        }
 
     doc = {
         "id": job_id,
@@ -236,23 +254,49 @@ def create_image_job(case: dict, batch_id: Optional[str] = None) -> str:
         "aspect_ratio": _aspect_ratio(case) or "",
         "resolution": _resolution(case) or "",
         "mode": _mode(case),
-        "matchup": matchup["id"],
-        "matchup_label": matchup["label"],
+        "matchup": matchup_id or f"{left['engine']}_vs_{right['engine']}",
+        "matchup_label": matchup_label or f"{left['engine']} vs {right['engine']}",
         "input_image": _input_image(case) or "",
         "timestamp": time.time(),
         "side_map": side_map,
         # Full identity (provider/model/quality) per side — for admin + retry.
         "side_specs": {"A": side_a, "B": side_b},
-        "results": {
-            "A": {"status": "generating", "engine": side_a["engine"]},
-            "B": {"status": "generating", "engine": side_b["engine"]},
-        },
+        "results": results,
         "auto_eval_status": "pending",
     }
+    if extra:
+        doc.update(extra)
+    return doc
 
+
+def create_image_job(case: dict, batch_id: Optional[str] = None) -> str:
+    """Create the Firestore image_jobs doc for the case's preset matchup."""
+    matchup = resolve_matchup(case)
+    doc = build_image_job_doc(
+        case, matchup["left"], matchup["right"], batch_id=batch_id,
+        matchup_id=matchup["id"], matchup_label=matchup["label"],
+    )
     db = _get_firestore_client()
-    db.collection(IMAGE_COLLECTION).document(job_id).set(doc)
-    return job_id
+    db.collection(IMAGE_COLLECTION).document(doc["id"]).set(doc)
+    return doc["id"]
+
+
+def create_image_job_with_sides(
+    case: dict, side_a: dict, side_b: dict, batch_id: Optional[str] = None,
+    run_eval: bool = True,
+) -> str:
+    """Create an image job for an AD-HOC pair of models, bypassing the preset
+    MATCHUPS registry. Used by `/api/image/prompts`, where the caller names the
+    two models. `process_job` and `retry_job` both read `side_specs` first, so
+    these pairs generate and retry exactly like preset ones.
+    """
+    doc = build_image_job_doc(
+        case, side_a, side_b, batch_id=batch_id,
+        extra=None if run_eval else {"auto_eval_status": "skipped"},
+    )
+    db = _get_firestore_client()
+    db.collection(IMAGE_COLLECTION).document(doc["id"]).set(doc)
+    return doc["id"]
 
 
 async def process_job(job_id: str, case: dict) -> str:
@@ -301,6 +345,10 @@ async def process_job(job_id: str, case: dict) -> str:
             db.collection(IMAGE_COLLECTION).document(job_id).update(patch)
     except Exception as e:  # pragma: no cover
         print(f"[image_pipeline] taxonomy tagging failed for {job_id}: {e}")
+
+    # `run_eval: false` on an intake request writes auto_eval_status "skipped".
+    if (job or {}).get("auto_eval_status") == "skipped":
+        return job_id
 
     try:
         from image_evaluator import run_image_evaluation

@@ -120,6 +120,18 @@ def _get_firestore_client():
     return firestore.Client(project=GCP_PROJECT_ID)
 
 
+def eval_is_skipped(db, job_id: str) -> bool:
+    """True when the job was created with the judge turned off (`run_eval:false`
+    on an intake request writes `auto_eval_status: "skipped"`). One extra read
+    per job, against a multi-minute generation — not worth threading a flag
+    through every pipeline signature to avoid."""
+    try:
+        snap = db.collection(EVAL_COLLECTION).document(job_id).get()
+        return (snap.to_dict() or {}).get("auto_eval_status") == "skipped"
+    except Exception:  # pragma: no cover — never block generation on this
+        return False
+
+
 def _ref_list(case: dict, key: str) -> List[str]:
     vals = case.get(key) or []
     if isinstance(vals, str):
@@ -580,6 +592,14 @@ def case_model_type(case: dict) -> str:
     return modality_to_type(case.get("modality") or case.get("mode") or "t2v")
 
 
+def case_categories(case: dict) -> List[str]:
+    """Normalize a case's tags/categories from any of the accepted keys."""
+    raw = case.get("categories") or case.get("tags") or case.get("category") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(c).strip() for c in raw if str(c).strip()]
+
+
 def create_admin_job(case: dict, batch_id, model_list) -> str:
     """Create a Firestore job doc keyed by EACH model id in `model_list`.
 
@@ -598,6 +618,10 @@ def create_admin_job(case: dict, batch_id, model_list) -> str:
         "customer": case.get("customer", ""),
         "prompt_id": case_id,
         "prompt": case.get("prompt", ""),
+        # Supplied tags must be persisted: `process_admin_job` skips auto-tagging
+        # when the case carries any, so dropping them here would leave the job
+        # with no categories at all, invisible to tag-filtered analytics.
+        "categories": case_categories(case),
         "ratio": case.get("aspect_ratio", "16:9"),
         "modality": _modality(case),
         "duration": case.get("duration"),
@@ -673,6 +697,9 @@ async def process_admin_job(job_id: str, case: dict, model_list: list) -> str:
         update_payload[f"results.{model['id']}"] = res
     if update_payload:
         db.collection(EVAL_COLLECTION).document(job_id).update(update_payload)
+
+    if eval_is_skipped(db, job_id):
+        return job_id
 
     try:
         run_auto_eval(job_id)
@@ -774,6 +801,12 @@ def run_auto_eval(job_id: str) -> None:
         # Match ANY Seedance variant (t2v/i2v/r2v), not just the r2v key.
         seedance_key = next((mk for mk, _ in tasks if "seedance" in mk or "doubao" in mk), None)
         omni_key = next((mk for mk, _ in tasks if "omni" in mk), None)
+        # Any other pair (a caller-named matchup via /api/sxs/prompts, or an
+        # ingested one) falls back to the first two successful models, in the
+        # order they were generated. The Seedance-vs-Omni mapping is kept as the
+        # first choice so historical jobs keep their existing A/B convention.
+        if not (seedance_key and omni_key) and len(tasks) >= 2:
+            seedance_key, omni_key = tasks[0][0], tasks[1][0]
         a_path = path_by_key.get(seedance_key) if seedance_key else None
         b_path = path_by_key.get(omni_key) if omni_key else None
         if a_path and b_path:

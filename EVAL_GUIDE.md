@@ -144,7 +144,26 @@ Each case → both engines synthesize audio → a Gemini audio judge scores **na
 
 ---
 
-## 3. Notes
+## 3. Standard intake APIs
+
+The upload endpoints above are the UI's path. For a scripted or customer-facing
+integration there is a documented contract that also lets you **name the models
+to run**, and that accepts **media the customer already generated**:
+
+```
+POST /api/{sxs,image,tts}/prompts    # prompts + model names  -> we generate
+POST /api/{sxs,image,tts}/outputs    # prompts + media URLs   -> we register
+```
+
+Either way the case lands in the same blind arena, judge, and analytics. See
+**[`docs/api/DATA_INTAKE.md`](docs/api/DATA_INTAKE.md)** for the full contract:
+per-modality case schemas, the `outputs` manifest, model discovery
+(`GET /api/intake/models`), the `run_eval` flag, and the partial-success
+response envelope.
+
+---
+
+## 4. Notes
 
 - **Isolation:** Image and TTS use their own Firestore collections (`image_jobs`/`image_votes`, `tts_jobs`/`tts_votes`) and GCS prefixes (`images/`, `audio/`). The existing **video** SxS app is untouched.
 - **Re-run a failed side:** use the *Retry* action on a job, or `POST /api/{image,tts}/jobs/{job_id}/retry`.

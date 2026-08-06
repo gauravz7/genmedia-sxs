@@ -59,6 +59,9 @@ Runs head-to-head blind A/B comparisons scored by both human voters and an autom
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/api/{image,tts}/upload` | POST | Upload a cases JSON → generate + auto-judge (admin) |
+| `/api/{sxs,image,tts}/prompts` | POST | Run prompts on **explicitly named** registered models (admin) |
+| `/api/{sxs,image,tts}/outputs` | POST | Register media the customer generated elsewhere; rehosted into our bucket (admin) |
+| `/api/intake/models` | GET | The model names each modality accepts |
 | `/api/{sxs,image,tts}/pair` | GET | Fetch a blind A/B pair for voting |
 | `/api/{sxs,image,tts}/vote` | POST | Record a blind human vote |
 | `/api/{sxs,image,tts}/stats` | GET | Win-rates + per-metric scores |
@@ -89,6 +92,18 @@ cd ../backend && uvicorn main:app --port 8080
 
 Deploy the unified image with the provided deploy script (`deploy_v2.sh`).
 
+## Documentation
+
+| Doc | Covers |
+|---|---|
+| [`docs/api/DATA_INTAKE.md`](docs/api/DATA_INTAKE.md) | The customer-facing intake contract — the six `prompts` / `outputs` endpoints and the per-modality case schemas |
+| [`docs/api/BACKEND_MODULES.md`](docs/api/BACKEND_MODULES.md) | What every backend module owns, and every endpoint it serves |
+| [`docs/api/API_REFERENCE.md`](docs/api/API_REFERENCE.md) | Request/response detail |
+| [`backend/README.md`](backend/README.md) | Full API + data model |
+| [`EVAL_GUIDE.md`](EVAL_GUIDE.md) | Running an image / TTS eval end to end |
+
 ## Repository notes
 
 - **Credentials, generated media, and evaluation prompt datasets are intentionally not committed** (see `.gitignore`). Provide your own prompt sets and provider keys locally.
+- **Prompt/case IDs embed customer names**, so the UI masks them (`maskPid()` shows only the last 4 characters) and datasets stay out of version control.
+- **`archive/` is dead code** — superseded scripts, one-off batch tooling, and the abandoned v3 rewrite. Nothing there is imported by the running app, and it is excluded from the Cloud Run build via `.gcloudignore`. See [`archive/README.md`](archive/README.md).

@@ -37,7 +37,20 @@ interface Model {
   model_id: string;
   type: string;
   is_active: boolean;
+  quality?: string | null;
+  transport?: string | null;   // 'vertex' (Google) | 'fal' (everything else)
 }
+
+// The registry spans all three modalities. Video types stay first so the video
+// admin views (which filter on them) read the same as before.
+const VIDEO_TYPES = ['t2v', 'i2v', 'r2v'];
+const REGISTRY_GROUPS: { type: string; label: string }[] = [
+  { type: 't2v', label: 'Text-to-Video' },
+  { type: 'i2v', label: 'Image-to-Video' },
+  { type: 'r2v', label: 'Reference-to-Video' },
+  { type: 't2i', label: 'Image (T2I / I2I)' },
+  { type: 'tts', label: 'Text-to-Speech' },
+];
 
 interface GenCase {
   id?: string;
@@ -452,7 +465,8 @@ export default function AdminConsole() {
   };
 
   // ---------- Generate (JSON) tab ----------
-  const activeModels = models.filter(m => m.is_active);
+  // Video-only — the registry now also holds image (t2i) and TTS models.
+  const activeModels = models.filter(m => m.is_active && VIDEO_TYPES.includes(m.type));
 
   const handleGenCasesJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -619,7 +633,7 @@ export default function AdminConsole() {
                 <h2 className="text-2xl font-bold text-white m-0">Model Registry</h2>
               </div>
               <div className="space-y-8">
-                {['t2v', 'i2v', 'r2v'].map((type) => {
+                {REGISTRY_GROUPS.map(({ type, label }) => {
                   const filtered = models.filter(m => m.type === type);
                   if (!filtered.length) return null;
                   return (
@@ -627,15 +641,16 @@ export default function AdminConsole() {
                       <div className="flex items-center gap-3 px-2">
                         <div className="h-0.5 w-4 bg-indigo-500 rounded-full"></div>
                         <h3 className="text-xs font-black uppercase tracking-[0.2em] text-gray-400">
-                          {type === 't2v' ? 'Text-to-Video' : type === 'i2v' ? 'Image-to-Video' : 'Reference-to-Video'}
+                          {label}
                         </h3>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {filtered.map(m => (
                           <div key={m.id} className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex items-center justify-between group hover:bg-white/[0.04] transition-all">
                             <div className="flex items-center space-x-4">
-                              <div className={`p-2 rounded-xl transition-colors cursor-pointer ${m.is_active ? (m.provider === 'vertex' ? 'bg-blue-500/20 text-blue-400' : 'bg-orange-500/20 text-orange-400') : 'bg-gray-800/10 text-gray-500'}`} onClick={() => handleToggleModel(m.id)}>
-                                {m.provider === 'vertex' ? <ShieldCheck className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+                              {/* Blue shield = Google, served over Vertex AI; orange bolt = everything else, over FAL. */}
+                              <div className={`p-2 rounded-xl transition-colors cursor-pointer ${m.is_active ? (m.transport === 'vertex' ? 'bg-blue-500/20 text-blue-400' : 'bg-orange-500/20 text-orange-400') : 'bg-gray-800/10 text-gray-500'}`} onClick={() => handleToggleModel(m.id)} title={`${m.provider} → ${m.transport || 'fal'}`}>
+                                {m.transport === 'vertex' ? <ShieldCheck className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
                               </div>
                               <div className="flex flex-col">
                                 <div className={`text-sm font-bold transition-colors ${m.is_active ? 'text-white' : 'text-gray-500'}`}>{m.name}</div>

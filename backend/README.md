@@ -1,5 +1,7 @@
 # Project Pulse Backend
 
+> Module-by-module map of the code (what each router owns, every endpoint, and which are admin-gated): [`../docs/api/BACKEND_MODULES.md`](../docs/api/BACKEND_MODULES.md).
+
 Internal benchmarking platform for side-by-side (SxS) evaluation of generative video models. Compare Veo, Kling, Seedance, Grok, and other AI video models through blind pairwise testing with structured human ratings.
 
 ---
@@ -16,6 +18,7 @@ Internal benchmarking platform for side-by-side (SxS) evaluation of generative v
   - [Prompt Management](#prompt-management)
   - [Tags & Categories](#tags--categories)
   - [Admin Job Management](#admin-job-management)
+  - [Data Intake](#data-intake-prompts--customer-supplied-outputs)
   - [Evaluation & Voting](#evaluation--voting)
   - [Statistics & Leaderboard](#statistics--leaderboard)
   - [Google Sheets Integration](#google-sheets-integration)
@@ -77,19 +80,54 @@ User ──────────────────▶│  │  (static)
 
 ## Key Components
 
+`main.py` is **application assembly only** (~115 lines): the `FastAPI` app, the
+validation handler, CORS, every `include_router`, the static mount, and the
+back-compat re-exports that `model_resolver.py`, `tts_pipeline.py` and the test
+suite rely on. Every handler lives in a router module.
+
+Routers are registered **before** the static catch-all mount, so `/api/*` always
+beats the compiled Next.js UI.
+
 | File | Purpose |
 |------|---------|
-| `main.py` | FastAPI app — all API endpoints, background job orchestration, data managers |
+| `main.py` | App assembly, router registration order, static mount |
+| `config.py` | Env constants (`GCP_PROJECT_ID`, `GCS_BUCKET_NAME`, `SXS_*_COLLECTION`) + `normalize_gcs_url` |
+| `registry.py` | The cross-modality model registry; `PROVIDER_TRANSPORT` enforces Google→Vertex / non-Google→FAL |
+| `store.py` | Legacy `Job`/`Vote`/`Prompt` documents and managers (the pre-SxS `eval_jobs` flow) |
+| `auth.py` | `require_admin` and the stateless admin token |
+| `tagging.py` / `generation.py` | Gemini auto-tagging tasks / the legacy multi-model generation engine |
+| `video_routes.py` | `/api/sxs/*` — the live video modality |
+| `image_routes.py` / `tts_routes.py` | The image and TTS modalities |
+| `intake_routes.py` + `intake.py` | The six data-intake endpoints and the URL-rehosting logic behind them |
+| `models_routes.py` / `admin_routes.py` | `/api/models`; login, prompts, tags, Sheets, legacy jobs view |
+| `analytics_routes.py` | Stats, leaderboards, `/api/benchmark/winmap`, `/api/analytics/agreement` |
+| `media_routes.py` | `/api/health` and the authenticated `/api/media` GCS proxy |
+| `slides_routes.py` / `legacy_routes.py` | Slides + slideware; the pre-multi-modality endpoints |
+| `model_resolver.py` | Shared "is this model registered and active" gate |
+| `sxs_pipeline.py` / `image_pipeline.py` / `tts_pipeline.py` | Per-modality job creation + generation |
+| `video_evaluator_sdk.py` / `image_evaluator.py` / `tts_evaluator.py` | The LLM-as-judge per modality |
 | `providers/vertex_provider.py` | Google Vertex AI / Veo video generation + Gemini tagging |
 | `providers/fal_provider.py` | FAL.ai provider — Kling, Seedance, Grok video generation |
 | `util/gcs_utils.py` | GCS upload/download, signed URL generation, URL normalization |
 | `util/drive_utils.py` | Google Drive video uploads to Shared Drive |
 | `util/sheets_utils.py` | Google Sheets read/write for batch processing |
-| `generate_google_slides.py` | Google Slides presentation generator (Pro/Fast tier layout) |
-| `generate_pptx.py` | PowerPoint export with embedded videos |
-| `generate_slideware.py` | Standalone HTML slideware presentation generator |
-| `bulk_drive_upload.py` | Parallel bulk upload of GCS videos to Google Drive |
-| `models.json` | Model registry — 50+ model definitions |
+| `util/ratelimit.py` | Process-wide concurrency cap (≤3) on generative calls, with 429 backoff |
+| `models_builtin.json` | Committed registry seed |
+| `models.json` | Gitignored admin-API overlay, merged on top of the seed |
+
+Per-endpoint detail for every module is in
+[`../docs/api/BACKEND_MODULES.md`](../docs/api/BACKEND_MODULES.md).
+
+### Tests
+
+```bash
+cd backend && python -m pytest tests -q     # ~4s, hermetic — no GCP credentials needed
+```
+
+`tests/` covers the intake APIs (registry gate, job-doc shapes, all six endpoints
+end to end) and the FAL-backed ElevenLabs request shaping. `conftest.py` stubs
+Firestore, GCS, the providers and the Gemini tagging calls — **no test may hit a
+live API.**
 
 ---
 
@@ -224,6 +262,260 @@ Queues video generation across selected models. Returns immediately; generation 
   "all_done": false
 }
 ```
+
+---
+
+### Data Intake (prompts + customer-supplied outputs)
+
+The standard, documented way to get a customer's data into a duel — for all
+three modalities. Customer-facing narrative version, with fuller examples:
+**[`docs/api/DATA_INTAKE.md`](../docs/api/DATA_INTAKE.md)**. What follows is the
+formal spec: every input field, every output field, every status code.
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/intake/models` | none | Model names accepted below, per modality |
+| POST | `/api/sxs/prompts` | admin | **BYOP** — run video cases on named models (N-way) |
+| POST | `/api/image/prompts` | admin | **BYOP** — run image cases on a named pair |
+| POST | `/api/tts/prompts` | admin | **BYOP** — run TTS cases on a named pair |
+| POST | `/api/sxs/outputs` | admin | **BYOO** — register customer-generated video |
+| POST | `/api/image/outputs` | admin | **BYOO** — register customer-generated images |
+| POST | `/api/tts/outputs` | admin | **BYOO** — register customer-generated audio |
+
+`sxs` = video. Implemented in `intake_routes.py` (routing + validation) and
+`intake.py` (rehost + job-doc construction); model names resolve through
+`model_resolver.py` against the shared registry — an unknown or inactive name is
+a `400`, never a job that silently produces nothing.
+
+Auth is the standard admin token: `X-Admin-Token: <token>` from
+`POST /api/admin/login`. Content type is `application/json` on every POST.
+
+#### `GET /api/intake/models`
+
+**Input** (query string):
+
+| param | type | default | meaning |
+|---|---|---|---|
+| `modality` | `"video" \| "image" \| "tts"` | all three | restrict the listing |
+| `active_only` | bool | `true` | `false` also lists deactivated models |
+
+**Output** `200` — `{"models": ModelInfo[]}`:
+
+| field | type | notes |
+|---|---|---|
+| `id` | string | **the name you pass** in `models` / `outputs` keys |
+| `name` | string | display label |
+| `modality` | `"video" \| "image" \| "tts"` | derived from `type` |
+| `type` | `"t2v" \| "i2v" \| "r2v" \| "t2i" \| "tts"` | video types must match the case |
+| `provider` | string | dispatch key: `vertex`, `omni`, `fal`, `gemini`, `gpt`, `mai`, `gemini_tts`, `elevenlabs` |
+| `transport` | `"vertex" \| "fal"` | Google → Vertex AI, everything else → FAL |
+| `quality` | string \| null | GPT-image tier (`low`/`medium`/`high`), else null |
+| `is_active` | bool | inactive models are rejected by both POST paths |
+
+```json
+{"models": [{"id": "elevenlabs-v3", "name": "ElevenLabs (v3)", "modality": "tts",
+             "type": "tts", "provider": "elevenlabs", "transport": "fal",
+             "quality": null, "is_active": true}]}
+```
+
+#### `POST /api/{sxs,image,tts}/prompts` — BYOP
+
+You supply prompts + model names; the platform generates, judges, and files the
+duel.
+
+**Input** (request body):
+
+| field | type | required | default | meaning |
+|---|---|---|---|---|
+| `models` | string[] | **yes** | — | registry ids, applied to **every** case in the request |
+| `cases` | object[] | **yes** | — | per-modality case objects, below |
+| `run_eval` | bool | no | `true` | run the AI judge after generation |
+| `batch_id` | string \| null | no | `"{modality}_intake_{epoch}"` | your own grouping label |
+
+Models per duel: **video any number ≥ 1** (`results` is keyed by model id),
+**image and TTS exactly 2** (the doc is two-sided — `results` keyed `A`/`B` with
+a `side_map`). Passing 1 or 3 to image/TTS is a `400`, not a truncation.
+
+**Case object — video** (`/api/sxs/prompts`):
+
+| field | type | required | notes |
+|---|---|---|---|
+| `id` | string | **yes** | unique case id. Embeds the customer name — the UI only ever shows the last 4 chars (`maskPid()`) |
+| `prompt` | string | **yes** | generation instruction |
+| `modality` | string | **yes** | `T2V`, `I2V`, `FLF2V`, `V2V`, `Ref2V` → registry types `t2v`/`i2v`/`r2v`. Every named model must match, or that case is skipped |
+| `customer` | string | no | analytics grouping key |
+| `aspect_ratio` | string | no | `"16:9"` default. On `/outputs`, `ratio` is accepted as an alias |
+| `duration` | number \| null | no | seconds |
+| `reference_images` | string[] | i2v / r2v | URLs — first frame, last frame, subject refs |
+| `reference_videos` | string[] | v2v / r2v | URLs |
+| `categories` | string[] | no | analytics tags; `tags` / `category` accepted as aliases |
+
+**Case object — image** (`/api/image/prompts`). T2I vs I2I is a property of the
+**case**, not the model — one registered `t2i` model serves both:
+
+| field | type | required | notes |
+|---|---|---|---|
+| `id` | string | **yes** | unique case id |
+| `prompt` | string | **yes** | generation or edit instruction |
+| `mode` | string | no | `"t2i"` (default) or `"i2i"`; `modality` accepted as an alias, `edit`/`image-to-image` as `i2i` aliases |
+| `input_image` | string | **i2i** | source-image URL; `reference_image` / `input_images[0]` accepted. Rehosted into our bucket so the judge can read it |
+| `aspect_ratio` | string | no | e.g. `"1:1"` |
+| `resolution` | string | no | free-form |
+| `customer`, `categories` | string / string[] | no | as above |
+
+An `i2i` case adds an **edit-fidelity** criterion to the judge.
+
+**Case object — TTS** (`/api/tts/prompts`). Single vs multi-speaker is likewise
+a property of the **case** — both engines render whichever it asks for:
+
+| field | type | required | notes |
+|---|---|---|---|
+| `id` | string | **yes** | unique case id |
+| `text` | string | **yes** | the script. Multi-speaker: one `Name: line` per line |
+| `mode` | string | no | `"single"` (default) or `"multi"` |
+| `speakers` | object[] | **multi** | `[{"name": "Priya"}, …]`; each distinct name gets its own voice, in order of first appearance |
+| `voice` | string | no | single-speaker only — curated name (`George`, `Sarah`, …) or a raw voice id |
+| `language` | string | no | BCP-47-ish. **Autodetected from `text` when omitted**; a mixed tag like `hi-en` generates in `hi` and keeps the full tag for filtering |
+| `style_prompt` | string | no | delivery direction; also drives ElevenLabs' stability tier |
+| `customer`, `categories` | string / string[] | no | categories auto-tag from language + industry when omitted |
+
+Inline audio tags (`[excited]`, `[whispers]`) are passed to ElevenLabs v3 and
+stripped for engines that don't support them.
+
+Generation is **asynchronous** — the call returns as soon as the job docs exist.
+Poll `GET /api/{sxs,image,tts}/jobs` and watch `results[*].status` and
+`auto_eval_status`.
+
+#### `POST /api/{sxs,image,tts}/outputs` — BYOO
+
+You supply prompts + URLs to media you already generated; the platform rehosts,
+judges, and files the duel.
+
+**Input** (request body):
+
+| field | type | required | default | meaning |
+|---|---|---|---|---|
+| `cases` | object[] | **yes** | — | same case objects as BYOP, **plus** `outputs` |
+| `run_eval` | bool | no | `true` | run the AI judge on the supplied media |
+| `batch_id` | string \| null | no | `"{modality}_intake_{epoch}"` | grouping label |
+| `source_label` | string | no | `"api ingest"` | provenance, stored as `imported_from` |
+
+There is **no request-level `models` list** — each case carries its own
+`outputs` manifest, because a customer export is rarely uniform (one case may
+compare A vs B, the next B vs C). A `models` key sent at request level is
+ignored.
+
+**`outputs` manifest** — keys are registry model ids; the value is either a URL
+string (shorthand) or an object:
+
+| field | type | required | notes |
+|---|---|---|---|
+| `url` | string | **yes** | `https://`, `http://`, or `gs://` |
+| `latency_ms` | number \| null | no | the customer's own generation time — feeds latency analytics. Omit rather than guess; it is never invented |
+| `metadata` | object | no | free-form, stored on the result and never interpreted |
+
+Same per-duel counts as BYOP: video N-way, image/TTS exactly 2 keys.
+
+```json
+{"cases": [{"id": "acme_i001", "mode": "t2i", "prompt": "a red maple leaf",
+            "outputs": {"gemini-3-pro-image": "https://acme.example.com/g.png",
+                        "gpt-image-2-high": {"url": "gs://acme-share/o.png",
+                                             "latency_ms": 4200,
+                                             "metadata": {"seed": 12345}}}}],
+ "run_eval": true, "source_label": "Acme Q3 export"}
+```
+
+**URL handling.** Every supplied URL — outputs, `reference_images`,
+`reference_videos`, `input_image` — is downloaded and **rehosted into our GCS
+bucket** (`sxs/ingest/`, `images/ingest/`, `audio/ingest/`), because signed
+links expire and both the judge and the `/api/media` proxy read through GCS. A
+URL already in our bucket is passed through untouched. Rehosting is
+**synchronous**, so split very large imports across a few requests. An
+unreachable URL fails only its own case, reported in `skipped`.
+
+#### Response envelope (all six endpoints)
+
+| field | type | meaning |
+|---|---|---|
+| `status` | `"ok" \| "failed"` | `"failed"` only when *nothing* could be created |
+| `batch_id` | string | echoed, or the generated one |
+| `job_ids` | string[] | Firestore doc ids created, in case order |
+| `count` | int | `len(job_ids)` |
+| `skipped` | object[] | one entry per rejected case: `{index: int, id: string, reason: string}` |
+
+```json
+{"status": "ok", "batch_id": "image_intake_1785914380",
+ "job_ids": ["img_acme-i001_1785914356594_652"], "count": 1,
+ "skipped": [{"index": 3, "id": "acme_004",
+              "reason": "'ghost-model' is not a registered model"}]}
+```
+
+**One bad row never aborts the batch** — a 500-case upload with two malformed
+rows produces 498 jobs and two `skipped` entries. `skipped[].id` falls back to
+`"(case #N)"` when the case has no `id`.
+
+#### Status codes
+
+| code | when | body |
+|---|---|---|
+| `200` | at least one case was accepted (or all were skipped, with `status: "failed"`) | the envelope above |
+| `400` | request-level failure: no cases, unusable model name, wrong model count for a two-sided modality, unknown `modality` query value | `{"detail": ...}` — string, or the structured object below |
+| `401` | missing or wrong `X-Admin-Token` | `{"detail": "Admin authentication required"}` |
+| `422` | body doesn't parse (e.g. `models` omitted on `/prompts`) | FastAPI validation array |
+| `500` | `ADMIN_PASS` not configured on the server | `{"detail": "ADMIN_PASS not configured on server"}` |
+
+An unusable model name reports **every** problem at once, and lists what *is*
+available:
+
+```json
+{"detail": {"error": "Unusable model(s) requested.",
+            "problems": ["'ghost-model' is not a registered model",
+                         "'gemini-3-pro-image' is a image model, not tts"],
+            "available": ["elevenlabs-v3", "gemini-3.1-flash-tts-preview"]}}
+```
+
+Wrong count on a two-sided modality is a plain-string detail:
+`{"detail": "tts duels are two-sided: pass exactly 2 models, got 1."}`
+
+When the same problem hits a single case rather than the whole request, that
+structured detail is flattened into one `skipped[].reason` string instead.
+
+#### What the endpoints write
+
+Both paths produce an ordinary job doc — indistinguishable from a
+platform-generated one in the arena, judge, and analytics, except for
+provenance. Every doc carries `source: "sxs_auto"` (every list/pair endpoint
+filters on it) and `auto_eval_status` — `"pending"` normally, `"skipped"` when
+`run_eval: false`, which makes the job human-votable but unjudged.
+
+| modality | collection | id prefix | `results` keyed by |
+|---|---|---|---|
+| video | `sxs_jobs` | `adm_` (BYOP) / `ing_` (BYOO) | model id |
+| image | `image_jobs` | `img_` | `"A"` / `"B"`, with `side_map` + `side_specs` |
+| tts | `tts_jobs` | `tts_` | `"A"` / `"B"`, with `side_map` |
+
+BYOP video docs are marked `origin: "admin"`. **BYOO docs of every modality**
+carry `origin: "ingest"` plus `imported_from: <source_label>`, and each result
+object is:
+
+```json
+{"status": "success", "model": "Gemini 3 Pro Image", "engine": "gemini-3-pro-image",
+ "url": "gs://project-pulse/images/ingest/...", "gcs_url": "gs://...",
+ "result": {"url": "gs://..."}, "error": null, "ingested": true,
+ "latency_ms": 4200, "metadata": {"seed": 12345}}
+```
+
+(`engine` on image/TTS only; `latency_ms` and `metadata` only when supplied.)
+
+#### Known limits
+
+- **Image and TTS duels are structurally two-sided** — comparing three image
+  models means three pairwise requests.
+- **Ingested jobs skip image auto-tagging.** Supply `categories`, or those jobs
+  will be missing from tag-filtered analytics.
+- **The registry is not durable** (see [Model Registry](#model-registry-modelsjson))
+  — models added via `POST /api/models` are lost when Cloud Run recycles the
+  instance, and with them the ability to name those models here.
 
 ---
 
@@ -616,7 +908,44 @@ Bucket is private — all access via `/api/media` proxy or ADC.
 **Grok (FAL):**
 - `grok-imagine` — T2V, I2V (active)
 
+**Image (T2I / I2I)** — one entry serves both modes; the pipeline switches on
+whether the case has an `input_image`:
+- `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image` — Vertex
+- `gpt-image-2-low` / `-medium` / `-high` — FAL, same `model_id` with `quality` set
+- `mai-image-2.5` — FAL
+
+**TTS:**
+- `gemini-3.1-flash-tts-preview` — Vertex
+- `elevenlabs-v3` — FAL (`fal-ai/elevenlabs/tts/eleven-v3`)
+
 Toggle models via `/api/models/{id}/toggle` without code changes.
+
+### Two files, one registry
+
+| file | committed? | role |
+|---|---|---|
+| `models_builtin.json` | **yes** | the seed — every model the platform ships with |
+| `models.json` | no (gitignored) | the overlay written by the admin API |
+
+`RegistryManager` loads the builtin file, then applies the overlay on top, so a
+fresh checkout and a recycled Cloud Run instance both come up with a working
+registry. Deleting a builtin model **deactivates** it rather than removing it —
+a true delete would silently come back on the next restart.
+
+### `transport` — Google via Vertex, everything else via FAL
+
+Each entry carries a `provider` (the **dispatch key** the pipelines switch on)
+and a derived `transport` of `vertex` or `fal`, validated on write against
+`main.PROVIDER_TRANSPORT`:
+
+| provider | transport |
+|---|---|
+| `vertex`, `omni`, `gemini`, `gemini_tts` | `vertex` |
+| `fal`, `gpt`, `mai`, `elevenlabs` | `fal` |
+
+An unrecognized provider is rejected at registration. Registry `type`
+(`t2v`/`i2v`/`r2v` → video, `t2i`/`i2i` → image, `tts` → tts) is what scopes a
+model to one modality's endpoints.
 
 ---
 
@@ -679,6 +1008,18 @@ npm run dev
 - Admin: http://localhost:3000/admin
 - API docs: http://localhost:8080/docs
 - Slideware: http://localhost:8080/slideware
+
+### Tests
+
+```bash
+cd backend && python -m pytest tests -q      # ~3s, no credentials needed
+```
+
+`backend/tests/` covers the model registry gate, the intake job-doc shapes, and
+the six intake endpoints end to end through the app. The suite is **hermetic** —
+`tests/conftest.py` stubs Firestore, GCS, the provider APIs, and the two Gemini
+auto-tagging calls that TTS job creation makes, so it runs offline and
+deterministically. Nothing else in the backend has automated tests yet.
 
 ---
 

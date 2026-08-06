@@ -1,0 +1,27 @@
+# Secrets & datasets — never commit
+.env
+.env.*
+*.key
+*.pem
+.admin_pass.local
+*.local
+models.json
+*cases*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/tsconfig.tsbuildinfo
+
+# Local media / scratch
+/tmp/
+*.log

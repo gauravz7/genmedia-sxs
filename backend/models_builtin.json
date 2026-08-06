@@ -1,0 +1,77 @@
+{
+  "gemini-3.1-flash-image": {
+    "id": "gemini-3.1-flash-image",
+    "name": "Gemini 3.1 Flash Image",
+    "provider": "gemini",
+    "model_id": "gemini-3.1-flash-image",
+    "type": "t2i",
+    "is_active": true
+  },
+  "gemini-3.1-flash-lite-image": {
+    "id": "gemini-3.1-flash-lite-image",
+    "name": "Gemini 3.1 Flash Lite Image",
+    "provider": "gemini",
+    "model_id": "gemini-3.1-flash-lite-image",
+    "type": "t2i",
+    "is_active": true
+  },
+  "gemini-3-pro-image": {
+    "id": "gemini-3-pro-image",
+    "name": "Gemini 3 Pro Image",
+    "provider": "gemini",
+    "model_id": "gemini-3-pro-image",
+    "type": "t2i",
+    "is_active": true
+  },
+  "gpt-image-2-low": {
+    "id": "gpt-image-2-low",
+    "name": "GPT-image-2 (low)",
+    "provider": "gpt",
+    "model_id": "gpt-image-2",
+    "type": "t2i",
+    "is_active": true,
+    "quality": "low"
+  },
+  "gpt-image-2-medium": {
+    "id": "gpt-image-2-medium",
+    "name": "GPT-image-2 (medium)",
+    "provider": "gpt",
+    "model_id": "gpt-image-2",
+    "type": "t2i",
+    "is_active": true,
+    "quality": "medium"
+  },
+  "gpt-image-2-high": {
+    "id": "gpt-image-2-high",
+    "name": "GPT-image-2 (high)",
+    "provider": "gpt",
+    "model_id": "gpt-image-2",
+    "type": "t2i",
+    "is_active": true,
+    "quality": "high"
+  },
+  "mai-image-2.5": {
+    "id": "mai-image-2.5",
+    "name": "MAI-Image-2.5",
+    "provider": "mai",
+    "model_id": "mai-image-2.5",
+    "type": "t2i",
+    "is_active": true
+  },
+  "gemini-3.1-flash-tts-preview": {
+    "id": "gemini-3.1-flash-tts-preview",
+    "name": "Gemini 3.1 Flash TTS",
+    "provider": "gemini_tts",
+    "model_id": "gemini-3.1-flash-tts-preview",
+    "type": "tts",
+    "is_active": true
+  },
+  "elevenlabs-v3": {
+    "id": "elevenlabs-v3",
+    "name": "ElevenLabs (v3)",
+    "provider": "elevenlabs",
+    "model_id": "fal-ai/elevenlabs/tts/eleven-v3",
+    "type": "tts",
+    "is_active": true
+  }
+}
