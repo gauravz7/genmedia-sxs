@@ -137,16 +137,55 @@ def no_network(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_llm_tagging(monkeypatch):
-    """Building a TTS job doc calls Gemini twice — `_detect_language` and
-    `_voice_categories` both tag the transcript at creation time. Left live that
-    is ~7s of real Vertex traffic per test and a suite that fails when a quota
-    does. Autouse so no test can hit Vertex by accident.
+    """Stub every LLM tagger the intake paths can reach.
+
+    Building a TTS job doc calls Gemini twice — `_detect_language` and
+    `_voice_categories` both tag the transcript at creation time — and ingesting
+    a video or image job calls it again to auto-tag the prompt. Left live that is
+    real Vertex traffic per test and a suite that fails when a quota does.
+    Autouse so no test can hit Vertex by accident.
+
+    Yields a recorder so a test can assert what the tagger was asked, and set
+    `tags[...]` to change what it answers (`[]` simulates a refusal, and
+    `raises = True` a hard failure).
     """
     import tts_pipeline
 
     monkeypatch.setattr(tts_pipeline, "_detect_language", lambda text: "en" if text else "")
     monkeypatch.setattr(tts_pipeline, "_voice_categories",
                         lambda text, lang: ["language:en", "industry:corporate"])
+
+    rec = {
+        "video": [],
+        "image": [],
+        "tags": {"video": ["Action", "Nature"], "image": ["Nature & Landscape"]},
+        "raises": False,
+    }
+
+    async def _fake_video_tags(prompt, start_image_url=None, end_image_url=None,
+                               reference_images=None):
+        rec["video"].append({
+            "prompt": prompt,
+            "start_image_url": start_image_url,
+            "end_image_url": end_image_url,
+            "reference_images": reference_images,
+        })
+        if rec["raises"]:
+            raise RuntimeError("gemini exploded")
+        return list(rec["tags"]["video"])
+
+    async def _fake_image_tags(prompt, mode=None):
+        rec["image"].append({"prompt": prompt, "mode": mode})
+        if rec["raises"]:
+            raise RuntimeError("gemini exploded")
+        return list(rec["tags"]["image"])
+
+    import image_taxonomy
+    from providers import vertex_provider
+
+    monkeypatch.setattr(vertex_provider, "generate_tags_with_gemini", _fake_video_tags)
+    monkeypatch.setattr(image_taxonomy, "classify_image_categories", _fake_image_tags)
+    return rec
 
 
 # --- App ---------------------------------------------------------------------

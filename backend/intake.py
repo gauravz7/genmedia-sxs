@@ -9,10 +9,13 @@ The AI judge needs no special handling: `run_auto_eval`, `run_image_evaluation`
 and `run_tts_evaluation` all read the job doc back from Firestore and never
 touch a generator, so an ingested job is judged exactly like a generated one.
 
-Two invariants make an ingested job visible to the rest of the platform:
+Three invariants make an ingested job visible to the rest of the platform:
   - `source: "sxs_auto"` — every list/pair endpoint filters on it.
   - media lives in OUR bucket — the judge and the `/api/media` proxy both read
     through GCS, and third-party links expire.
+  - `categories` are populated — see `autotag_job` below. Skipping the generator
+    also skips the tagging that normally happens alongside it, and an untagged
+    job is missing from every tag-filtered analytic.
 
 Generalizes the one-off `load_v2v_bench.py` import script (now archived under
 `archive/backend/scripts/`).
@@ -290,6 +293,104 @@ def ingest_case(
     from sxs_pipeline import _get_firestore_client
     _get_firestore_client().collection(collection).document(doc["id"]).set(doc)
     return doc["id"]
+
+
+# --- LLM auto-tagging -------------------------------------------------------
+# An ingested job never runs a generator, so it never passes through the
+# `process_job` step where a generated job picks up its categories. Left alone it
+# lands untagged and is invisible to every tag-filtered analytic — the arena tag
+# filter, `/api/{sxs,image}/tags`, and the segmented win-map.
+#
+# Each modality delegates to the SAME tagger its generated path uses, so a case
+# is tagged identically however it entered:
+#
+#   video — Gemini over the prompt (+ reference imagery), and only when the
+#           customer supplied no categories of their own, matching
+#           `sxs_pipeline.process_job`.
+#   image — the fixed image taxonomy, which always runs and preserves any
+#           supplied categories under `categories_raw`, matching
+#           `image_pipeline.process_job`.
+#   tts   — nothing to do: `build_tts_job_doc` derives language + industry tags
+#           while the doc is being built, so BYOO already gets them.
+#
+# Mirroring each modality's own convention rather than inventing a uniform one
+# is deliberate: the same case must tag the same way whether it arrived through
+# `/prompts` or `/outputs`, or the two aren't comparable in the analytics.
+
+
+def _collection_for(modality: str) -> str:
+    if modality == "video":
+        from sxs_pipeline import EVAL_COLLECTION
+        return EVAL_COLLECTION
+    if modality == "image":
+        from image_pipeline import IMAGE_COLLECTION
+        return IMAGE_COLLECTION
+    from tts_pipeline import TTS_COLLECTION
+    return TTS_COLLECTION
+
+
+async def _tags_video(case: dict, doc: dict) -> Tuple[List[str], dict]:
+    if doc.get("categories"):
+        return [], {}
+    from providers.vertex_provider import generate_tags_with_gemini
+    prompt = doc.get("prompt") or ""
+    # Only ever hand Gemini imagery that lives in OUR bucket. `reference_images`
+    # on the doc are the rehosted copies; the first/last-frame fields are not
+    # rehosted on this path, so they are passed only when the customer already
+    # gave us a `gs://` URL of ours — an expired third-party link would just
+    # cost a failed call and a text-only retry.
+    def _ours(url):
+        return url if url and _in_our_bucket(url) else None
+
+    tags = await generate_tags_with_gemini(
+        prompt,
+        _ours(case.get("start_image_url")),
+        _ours(case.get("end_image_url")),
+        doc.get("reference_images"),
+    )
+    if not tags:  # an unreadable image yields [] -> retry text-only
+        tags = await generate_tags_with_gemini(prompt)
+    return tags, {}
+
+
+async def _tags_image(case: dict, doc: dict) -> Tuple[List[str], dict]:
+    from image_taxonomy import classify_image_categories
+    tags = await classify_image_categories(doc.get("prompt") or "", doc.get("mode"))
+    supplied = doc.get("categories") or []
+    keep_raw = bool(tags and supplied and not doc.get("categories_raw"))
+    return tags, ({"categories_raw": supplied} if keep_raw else {})
+
+
+_TAGGERS = {"video": _tags_video, "image": _tags_image}
+
+
+async def autotag_job(modality: str, job_id: str, case: dict) -> List[str]:
+    """LLM-tag an ingested job in place. Returns the categories written.
+
+    Best-effort, like the tagging on the generated path: a Gemini failure leaves
+    the job untagged rather than undoing an ingest whose media is already in our
+    bucket. Safe to hand to BackgroundTasks.
+    """
+    tagger = _TAGGERS.get(modality)
+    if tagger is None:
+        return []
+    try:
+        from sxs_pipeline import _get_firestore_client
+        db = _get_firestore_client()
+        collection = _collection_for(modality)
+        snap = db.collection(collection).document(job_id).get()
+        doc = snap.to_dict() if snap and snap.exists else None
+        if not doc:
+            return []
+
+        tags, extra = await tagger(case, doc)
+        if not tags:
+            return []
+        db.collection(collection).document(job_id).update({"categories": tags, **extra})
+        return tags
+    except Exception as e:  # pragma: no cover - tagging is best-effort
+        print(f"[intake] auto-tag failed for {job_id}: {e}")
+        return []
 
 
 def run_eval_for(modality: str, job_id: str) -> None:

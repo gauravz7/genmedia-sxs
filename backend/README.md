@@ -507,12 +507,26 @@ object is:
 
 (`engine` on image/TTS only; `latency_ms` and `metadata` only when supplied.)
 
+#### Auto-tagging
+
+`categories` is optional on both intake paths — `intake.autotag_job` runs as a
+background task after the response and tags the job from its prompt, using the
+same tagger the modality's generated path uses, so a case tags identically
+whichever way it arrived:
+
+| modality | tagger | supplied `categories` |
+|---|---|---|
+| video | `vertex_provider.generate_tags_with_gemini` over the prompt + rehosted reference imagery | kept; the tagger only fills a gap |
+| image | `image_taxonomy.classify_image_categories` (fixed 30-category taxonomy) | taxonomy still wins; yours preserved under `categories_raw` |
+| TTS | `_detect_language` + `_voice_categories`, inside `build_tts_job_doc` | kept |
+
+Best-effort: a tagger failure leaves the job untagged but created, votable and
+judged. `POST /api/admin/backfill-tags` re-tags anything missing categories.
+
 #### Known limits
 
 - **Image and TTS duels are structurally two-sided** — comparing three image
   models means three pairwise requests.
-- **Ingested jobs skip image auto-tagging.** Supply `categories`, or those jobs
-  will be missing from tag-filtered analytics.
 - **The registry is not durable** (see [Model Registry](#model-registry-modelsjson))
   — models added via `POST /api/models` are lost when Cloud Run recycles the
   instance, and with them the ability to name those models here.

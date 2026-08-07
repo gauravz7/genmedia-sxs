@@ -183,6 +183,18 @@ reference assets) into our bucket, deriving the content type — do **not** use
 `gcs_utils.upload_from_url` for video/audio, which hardcodes `image/png` for
 `gs://`→GCS transfers.
 
+It also owns `autotag_job`, queued as a background task per ingested job. An
+ingested job never runs a generator, so it never reaches the `process_job` step
+where a generated job picks up its categories; left untagged it is missing from
+every tag-filtered analytic. Each modality delegates to the **same tagger its
+generated path uses** — Gemini for video (only when the caller supplied none),
+`image_taxonomy.classify_image_categories` for image (always, preserving any
+supplied ones under `categories_raw`), and nothing for TTS, which
+`build_tts_job_doc` already tags at doc-build time. Mirroring each modality's own
+convention is deliberate: a case must tag the same way whether it arrived through
+`/prompts` or `/outputs`. Tagging is best-effort — a failure leaves the job
+untagged rather than undoing an ingest whose media is already in our bucket.
+
 ### `analytics_routes.py` — stats, leaderboards, cross-modality analytics
 The one place that is deliberately **not** modality-isolated: it reads every
 modality's collections.
@@ -242,7 +254,7 @@ frontend — don't extend these.** The live paths are `/api/{sxs,image,tts}/*`.
 | `sxs_pipeline.py` / `image_pipeline.py` / `tts_pipeline.py` | Per-modality job creation and generation, concurrency-limited by `*_CONCURRENCY`. |
 | `video_evaluator_sdk.py` / `image_evaluator.py` / `tts_evaluator.py` | The LLM-as-judge for each modality (multimodal Gemini on Vertex AI). |
 | `image_taxonomy.py` | Category classification for image jobs. |
-| `intake.py` | Rehosting + job-doc writing behind the `outputs` endpoints. |
+| `intake.py` | Rehosting, job-doc writing, and LLM auto-tagging behind the `outputs` endpoints. |
 | `model_resolver.py` | The shared "is this model registered and active" gate. Imports `main` lazily inside its functions — a module-level import would be circular. |
 | `providers/` | One module per generation backend; pipelines dispatch on the registry's `provider` field. |
 | `util/` | `gcs_utils.py` (storage), `asset_intake.py` (reference-media ingestion), `drive_utils.py` + `sheets_utils.py`, `ratelimit.py` (≤3 concurrent generative calls process-wide, with 429 backoff). |

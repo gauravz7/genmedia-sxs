@@ -171,7 +171,7 @@ available:
 | `duration` | no | seconds |
 | `reference_images` | i2v / r2v | list of URLs — first frame, last frame, or subject references |
 | `reference_videos` | v2v / r2v | list of URLs |
-| `categories` | no | tags used by the analytics filters |
+| `categories` | no | tags used by the analytics filters. **Auto-tagged from the prompt when omitted** — see [Auto-tagging](#auto-tagging) |
 
 Video models are **type-specific**. Every model you name must match the case's
 own type, or the request is rejected for that case — a `t2v` model on an `I2V`
@@ -357,6 +357,25 @@ Ingested jobs are marked `origin: "ingest"` with your `source_label` in
 
 ---
 
+## Auto-tagging
+
+**You do not have to supply `categories` on either path.** Every job is tagged by
+an LLM from its own prompt, so it lands in the arena tag filter and the
+segmented analytics either way. A case tags identically whether it arrived
+through `/prompts` or `/outputs` — otherwise the two wouldn't be comparable.
+
+| modality | tagger | if you supply `categories` |
+|---|---|---|
+| **video** | Gemini over the prompt and any reference imagery | yours are kept as-is; the tagger only fills a gap |
+| **image** | the fixed 30-category image taxonomy | the taxonomy still runs (free-text tags would fragment the filters), and yours are preserved verbatim under `categories_raw` |
+| **TTS** | language detection + industry classification over the transcript | yours are kept as-is |
+
+Tagging is best-effort and happens in the background after the response is sent:
+if the tagger fails, the job is still created, still votable, and still judged —
+it is just untagged, and re-taggable later with `POST /api/admin/backfill-tags`.
+
+---
+
 ## The `run_eval` flag
 
 `run_eval` (default `true`) controls the AI judge on both paths. With
@@ -373,9 +392,6 @@ You can always run the judge afterwards from the admin UI, per job.
 
 - **Image and TTS duels are structurally two-sided.** Comparing three image
   models means three separate pairwise requests.
-- **Ingested jobs skip image auto-tagging.** Generated image jobs get taxonomy
-  tags automatically; ingested ones do not. Supply `categories` on the case, or
-  those jobs will be missing from tag-filtered analytics.
 - **Case ids embed customer names**, so the UI only ever shows the last 4
   characters. Don't put anything in an id you wouldn't want partially visible.
 - **Rehosting is synchronous.** A batch of several hundred large videos will

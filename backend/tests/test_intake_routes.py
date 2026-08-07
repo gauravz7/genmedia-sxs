@@ -496,3 +496,115 @@ def test_every_endpoint_returns_the_same_envelope(
     got = client.post(path, headers=admin_headers, json=body).json()
     assert set(got) == {"status", "batch_id", "job_ids", "count", "skipped"}
     assert got["count"] == len(got["job_ids"])
+
+
+# ===================================================================
+# LLM auto-tagging on the /outputs path
+#
+# An ingested job never runs a generator, so it never reaches the `process_job`
+# step where a generated job picks up its categories. Untagged, it is invisible
+# to every tag-filtered analytic. Each modality must tag the way its OWN
+# generated path does, or the same case tags differently depending on whether it
+# arrived through /prompts or /outputs — and then the two aren't comparable.
+# ===================================================================
+
+def test_video_outputs_are_auto_tagged(client, admin_headers, fake_db, fake_rehost,
+                                       no_judge, video_models, no_llm_tagging):
+    case = video_case(outputs={
+        video_models[0]: "https://acme.example.com/a.mp4",
+        video_models[1]: "https://acme.example.com/b.mp4",
+    })
+    client.post("/api/sxs/outputs", headers=admin_headers, json={"cases": [case]})
+    assert fake_db.only_doc("sxs_jobs")["categories"] == ["Action", "Nature"]
+    assert no_llm_tagging["video"][0]["prompt"] == "a cyclist in the rain"
+
+
+def test_video_keeps_customer_supplied_categories(client, admin_headers, fake_db,
+                                                  fake_rehost, no_judge, video_models,
+                                                  no_llm_tagging):
+    """Matches sxs_pipeline: the video tagger only fills a gap, it never
+    overrides a caller who already told us the categories."""
+    case = video_case(categories=["Sports"], outputs={
+        video_models[0]: "https://acme.example.com/a.mp4",
+        video_models[1]: "https://acme.example.com/b.mp4",
+    })
+    client.post("/api/sxs/outputs", headers=admin_headers, json={"cases": [case]})
+    assert fake_db.only_doc("sxs_jobs")["categories"] == ["Sports"]
+    assert no_llm_tagging["video"] == []
+
+
+def test_video_tagger_sees_the_rehosted_reference_images(
+        client, admin_headers, fake_db, fake_rehost, no_judge, video_models,
+        no_llm_tagging):
+    """The customer's own links may already have expired — Gemini has to read
+    the copies we took, not the originals."""
+    case = video_case(modality="R2V",
+                      reference_images=["https://acme.example.com/ref.png"],
+                      outputs={
+                          video_models[0]: "https://acme.example.com/a.mp4",
+                          video_models[1]: "https://acme.example.com/b.mp4",
+                      })
+    client.post("/api/sxs/outputs", headers=admin_headers, json={"cases": [case]})
+    refs = no_llm_tagging["video"][0]["reference_images"]
+    assert refs and all(r.startswith("gs://project-pulse/") for r in refs)
+
+
+def test_image_outputs_are_auto_tagged(client, admin_headers, fake_db, fake_rehost,
+                                       no_judge, no_llm_tagging):
+    client.post("/api/image/outputs", headers=admin_headers,
+                json={"cases": [image_outputs_case()]})
+    assert fake_db.only_doc("image_jobs")["categories"] == ["Nature & Landscape"]
+    assert no_llm_tagging["image"][0] == {"prompt": "a red leaf", "mode": "t2i"}
+
+
+def test_image_taxonomy_wins_but_supplied_tags_are_preserved(
+        client, admin_headers, fake_db, fake_rehost, no_judge, no_llm_tagging):
+    """Matches image_pipeline: the fixed 30-category taxonomy always runs, so
+    free-text tags can't fragment the filters — but they are kept verbatim under
+    `categories_raw`."""
+    case = image_outputs_case(categories=["customer's own label"])
+    client.post("/api/image/outputs", headers=admin_headers, json={"cases": [case]})
+    doc = fake_db.only_doc("image_jobs")
+    assert doc["categories"] == ["Nature & Landscape"]
+    assert doc["categories_raw"] == ["customer's own label"]
+
+
+def test_tts_outputs_are_tagged_at_doc_build_time(client, admin_headers, fake_db,
+                                                  fake_rehost, no_judge, no_llm_tagging):
+    """TTS needs no ingest-time tagger — build_tts_job_doc derives language and
+    industry while the doc is being built, on both intake paths."""
+    client.post("/api/tts/outputs", headers=admin_headers,
+                json={"cases": [tts_outputs_case()]})
+    assert fake_db.only_doc("tts_jobs")["categories"] == ["language:en",
+                                                          "industry:corporate"]
+
+
+def test_a_tagger_failure_does_not_lose_the_job(client, admin_headers, fake_db,
+                                                fake_rehost, no_judge, no_llm_tagging):
+    """The media is already rehosted into our bucket by the time we tag. Losing
+    the job over a Gemini hiccup would be far worse than an untagged job."""
+    no_llm_tagging["raises"] = True
+    r = client.post("/api/image/outputs", headers=admin_headers,
+                    json={"cases": [image_outputs_case()]})
+    assert r.json()["count"] == 1
+    assert fake_db.only_doc("image_jobs")["categories"] == []
+
+
+def test_an_empty_tag_response_leaves_the_job_alone(client, admin_headers, fake_db,
+                                                    fake_rehost, no_judge, no_llm_tagging):
+    no_llm_tagging["tags"]["image"] = []
+    client.post("/api/image/outputs", headers=admin_headers,
+                json={"cases": [image_outputs_case(categories=["keep me"])]})
+    doc = fake_db.only_doc("image_jobs")
+    assert doc["categories"] == ["keep me"]
+    assert "categories_raw" not in doc
+
+
+def test_tagging_still_happens_when_the_judge_is_skipped(
+        client, admin_headers, fake_db, fake_rehost, no_judge, no_llm_tagging):
+    """run_eval and tagging are independent — a job you judge later still needs
+    to be findable now."""
+    client.post("/api/image/outputs", headers=admin_headers,
+                json={"cases": [image_outputs_case()], "run_eval": False})
+    assert no_judge == []
+    assert fake_db.only_doc("image_jobs")["categories"] == ["Nature & Landscape"]

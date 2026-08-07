@@ -37,7 +37,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 import model_resolver
-from intake import IngestError, ingest_case, run_eval_for
+from intake import IngestError, autotag_job, ingest_case, run_eval_for
 
 load_dotenv()
 
@@ -254,6 +254,12 @@ def _ingest_batch(modality: str, req: OutputsRequest, background: BackgroundTask
                 run_eval=req.run_eval, source_label=req.source_label,
             )
             job_ids.append(job_id)
+            # LLM-tag before judging. An ingested job never runs a generator, so
+            # this is the only place it can pick up the categories that the
+            # tag-filtered analytics and the arena tag filter key off. Each
+            # modality reuses its own generated-path tagger; TTS is already
+            # tagged inside `build_tts_job_doc` and so is a no-op here.
+            background.add_task(autotag_job, modality, job_id, case)
             if req.run_eval:
                 background.add_task(run_eval_for, modality, job_id)
         except HTTPException as e:
